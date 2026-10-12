@@ -270,7 +270,6 @@ fn classify_touches(
     cfg: Res<JoystickCfg>,
     window: Query<&Window, With<PrimaryWindow>>,
     script: Option<NonSend<benilla_ui::script::UiScript>>,
-    ui_scale: Res<crate::ui_script::UiScaleCvar>,
     mut fingers: ResMut<Fingers>,
     mut mv: ResMut<TouchMove>,
     mut look: ResMut<TouchLook>,
@@ -313,7 +312,7 @@ fn classify_touches(
             // The stick wins its zone outright — see the module doc on full-screen addon frames.
             anchor.centre = Some(pos);
             Role::Joystick
-        } else if hits_ui(script.as_deref(), ui_scale.0, win_h, pos) {
+        } else if hits_ui(script.as_deref(), win_h, pos) {
             Role::Ui
         } else {
             Role::Look
@@ -419,14 +418,13 @@ fn classify_touches(
 /// the engine's y-up space, then divide by the seam scale into its 768-virtual units.
 fn hits_ui(
     script: Option<&benilla_ui::script::UiScript>,
-    ui_scale: f32,
     win_h: f32,
     pos: Vec2,
 ) -> bool {
     let Some(script) = script else {
         return false;
     };
-    let s = crate::ui_script::seam_scale(win_h, ui_scale);
+    let s = crate::ui_script::seam_scale(win_h);
     let (x, y) = (pos.x / s, (win_h - pos.y) / s);
     // The world frame is mouse-enabled by construction but its hit belongs to the WORLD
     // (decision 1983) — otherwise every swipe over open terrain would classify as `Role::Ui` and

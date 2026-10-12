@@ -869,18 +869,15 @@ fn setup_entities(
     }
     match CharCreateCatalog::load(&mut chain) {
         Ok(catalog) => {
+            if let Some(e) = catalog.name_gen_error() {
+                warn!("NameGen.dbc unavailable, the create screen's random name is empty: {e}");
+            }
             if !catalog.modified_combos.is_empty() {
                 warn!(
                     "char-create catalog: CharBaseInfo races {:?} have class combos the frozen \
                      1.12 table does not (a Turtle-derived DBC) — trusting the DBC",
                     catalog.modified_combos
                 );
-            }
-            commands.insert_resource(CharCreate(catalog));
-        }
-        Ok(catalog) => {
-            if let Some(e) = catalog.name_gen_error() {
-                warn!("NameGen.dbc unavailable, the create screen's random name is empty: {e}");
             }
             commands.insert_resource(CharCreate(catalog));
         }

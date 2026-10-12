@@ -246,7 +246,11 @@ pub fn read_proof_reply(r: &mut impl Read) -> Result<Option<[u8; 20]>> {
         if opcode == CMD_AUTH_LOGON_CHALLENGE {
             let _padding = read_u8(r)?;
             let result = read_u8(r)?;
-            return Err(AuthReject { code: result }.into());
+            return Err(AuthReject {
+                code: result,
+                reply: LogonReply::Challenge,
+            }
+            .into());
         }
         bail!("expected CMD_AUTH_LOGON_PROOF (0x01), got {opcode:#x}");
     }

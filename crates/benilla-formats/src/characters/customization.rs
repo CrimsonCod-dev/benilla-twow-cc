@@ -28,6 +28,7 @@ const SECTION_HAIR: u8 = 3;
 type SectionKey = (u8, u8, u8, u8, u8);
 
 /// The playable races, ChrRaces ids 1–8; Goblin (9) and above are not creatable.
+#[cfg(test)]
 const PLAYABLE_RACES: [u8; 8] = [1, 2, 3, 4, 5, 6, 7, 8];
 
 /// The shipped ChrRaces fileStrings (col 15), guarding [`load_races`]' string columns.

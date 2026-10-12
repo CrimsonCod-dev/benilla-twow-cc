@@ -25,6 +25,8 @@ pub(super) struct TextStyle {
     pub text_height: Option<f32>,
     pub shadow: Option<FontShadow>,
     pub outline: Outline,
+    /// The gap between lines, frame-local, scaled like the font height.
+    pub spacing: f32,
     pub alpha_gradient: Option<(f32, f32)>,
     /// The V-plate's name and level, seated on the plate's device-snapped overlay, not the UI grid.
     pub world_seat: bool,
@@ -40,10 +42,11 @@ pub(super) struct TextHost<'a> {
     /// The focused editbox's text UI, unfiltered: [`emit`] matches it to this quad by `target`.
     pub ebox: Option<&'a EditBoxTextUi>,
     pub screen_h: f32,
-    /// The seam scale `windowH/768 × uiScale`, for the unit-space inputs; rects arrive in px.
+    /// The seam scale `windowH/768`, for the root-unit inputs; rects arrive in px.
     pub scale: f32,
     /// The frame's effective scale, already in the rect: glyph size and shadow offset ride it, as
-    /// the 1.12 client's text rides `SetScale`; the editbox x-offsets arrive in screen UI units.
+    /// the 1.12 client's text rides `SetScale` and the UI scale; the editbox x-offsets arrive in
+    /// root units.
     pub font_scale: f32,
     /// Captures pin the caret on for deterministic pixels; live, the engine's blink decides.
     pub caret_pinned: bool,
@@ -75,6 +78,11 @@ pub(super) fn emit(
             host.scale * host.font_scale,
         ),
         outline: style.outline,
+        spacing: style.spacing * host.scale * host.font_scale,
+        // A set shadow seeds each row's pen at its drawn offset (`0x5cddb1`, `0x7726a4`).
+        shadow_x: style
+            .shadow
+            .map_or(0.0, |sh| sh.offset[0] * host.scale * host.font_scale),
         alpha_gradient: style.alpha_gradient,
     };
     // The focused editbox draws windowed (`0x77da80`): the scroll window's substring from the
@@ -387,7 +395,7 @@ mod tests {
         assert_eq!(band_clip_slack(Some(2.0)), 3.0);
     }
 
-    /// `1.0546875` is the seam scale of a 1600×900 window at uiScale 0.9.
+    /// `1.0546875` is a 1600×900 window's seam times the 0.9 UI scale.
     #[test]
     fn a_shadow_offset_is_a_whole_pixel_and_never_vanishes() {
         assert_eq!(shadow_offset_px(1.0), 1.0);

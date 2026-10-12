@@ -93,6 +93,19 @@ fn the_flush_follows_the_boxs_own_on_update_cursor_then_text() {
     assert!(s.errors().is_empty(), "{:?}", s.errors());
 }
 
+/// The box's place in the walk is its stratum's, not its creation's: a BACKGROUND box updates and
+/// flushes before the MEDIUM frames made around it (`0x7656c8`).
+#[test]
+fn a_box_flushes_after_its_on_update_in_its_strata_place() {
+    let mut s = script();
+    logged_box(&mut s);
+    s.run(r#"E:SetFrameStrata("BACKGROUND") E:SetText("abc")"#)
+        .unwrap();
+    s.tick(0.016);
+    assert_eq!(take_log(&s), "update cursor@21 text:abc early late");
+    assert!(s.errors().is_empty(), "{:?}", s.errors());
+}
+
 /// An edit a box makes in its own `OnUpdate` is flushed by the same update, so its events fire in
 /// the same tick.
 #[test]
@@ -458,6 +471,9 @@ fn up_and_down_move_a_multi_line_boxs_caret_by_rows() {
     "#,
     )
     .unwrap();
+    // The flush sizes the box to its two rows; the drain after the walk resizes it, and the
+    // re-seat that runs fires once more at the next flush (`0x77a8d0` → `0x77b8c0`).
+    s.tick(0.016);
     s.tick(0.016);
     take_log(&s);
     let row = |back| EditAction::Move {
@@ -507,5 +523,78 @@ fn on_cursor_changed_reports_the_first_row_at_plus_zero() {
         "early update -14 text:a\nb late early update 0 text:c late",
         "multi-line, the second row and then the first"
     );
+    assert!(s.errors().is_empty(), "{:?}", s.errors());
+}
+
+/// [`Mono`] as the host answers a scaled box: glyphs 7 and lines 14 in the box's own units, the
+/// table in root units (measured at the box's scale, divided by the seam alone).
+struct ScaledMono;
+
+impl TextMeasure for ScaledMono {
+    fn measure(&mut self, req: &MeasureRequest) -> (f32, f32, f32) {
+        Mono.measure(req)
+    }
+
+    fn editbox_advances(
+        &mut self,
+        req: &EditBoxAdvanceRequest,
+    ) -> Option<(Vec<f32>, Vec<usize>, f32)> {
+        let (cum, rows, pitch) = Mono.editbox_advances(req)?;
+        let k = req.scale;
+        Some((cum.into_iter().map(|a| a * k).collect(), rows, pitch * k))
+    }
+}
+
+/// `OnCursorChanged` answers in the box's own units: the reference divides by its effective scale
+/// (`0x77db23 fdiv [esi+0x7c]`), so a half-scale box reports what a full-scale one does.
+#[test]
+fn on_cursor_changed_answers_in_the_boxs_own_units() {
+    let mut s = script();
+    s.set_text_measurer(Box::new(ScaledMono));
+    logged_box(&mut s);
+    s.run(
+        r#"
+        E:SetScale(0.5)
+        E:SetScript("OnCursorChanged", function()
+            table.insert(LOG, format("cursor@%g,%g,%g", arg1, arg2, arg4))
+        end)
+        E:SetMultiLine(true)
+        E:SetText("abc\nd")
+    "#,
+    )
+    .unwrap();
+    s.tick(0.016);
+    assert_eq!(
+        take_log(&s),
+        "early update cursor@7,-14,14 text:abc\nd late",
+        "one glyph along the second row, a row pitch down, one pitch tall"
+    );
+    assert!(s.errors().is_empty(), "{:?}", s.errors());
+}
+
+/// A box created and anchored between frames, as an event handler does: the pump's drain before
+/// the walk (`0x7656ba`) gives it its first rect, whose resize runs the box's `OnSizeChanged`
+/// override (`0x76b63e` → `0x77a8d0`); the re-seat ORs its bits into the ctor's (`0x77ba7f`), so the
+/// walk's flush (`0x77a7a1`) fires `OnTextChanged` once, and the frames after it fire nothing.
+#[test]
+fn a_box_anchored_between_frames_fires_on_text_changed_once() {
+    let mut s = script();
+    s.run(
+        r#"
+        N = 0
+        local e = CreateFrame("EditBox", "Fresh")
+        e:SetAutoFocus(false)
+        e:SetPoint("BOTTOMLEFT", 100, 50)
+        e:SetWidth(200); e:SetHeight(32)
+        e:SetScript("OnTextChanged", function() N = N + 1 end)
+    "#,
+    )
+    .unwrap();
+    // The host's frame: the tick, then its own resolve for the draw.
+    for _ in 0..3 {
+        s.tick(0.016);
+        s.resolve();
+    }
+    assert_eq!(s.eval::<i64>("return N").unwrap(), 1);
     assert!(s.errors().is_empty(), "{:?}", s.errors());
 }

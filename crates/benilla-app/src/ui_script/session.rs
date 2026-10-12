@@ -160,6 +160,9 @@ mod tests {
     /// `Local`s in VM-holding systems that are not memory about the VM, keyed
     /// `(path under src/, parameter name)`.
     const EXEMPT: &[(&str, &str)] = &[
+        // The targeting cancels seen, a count over `SpellTargeting`, host state the VM never
+        // holds: a fresh VM starts with nothing armed to disarm.
+        ("ui_tradeskill.rs", "seen_aborts"),
         // A raster fact; a fresh VM re-seats its measurer on `!has_text_measurer()` anyway.
         ("ui_script/extract/mod.rs", "last_seam"),
         // The plate driver's anti-overlap scratch, cleared at the top of every run.
@@ -178,6 +181,9 @@ mod tests {
         ("cursor.rs", "last_ptr"),
         // The wheel's fraction toward its next notch, a fact about the device, not the VM.
         ("bindings.rs", "notches"),
+        // The keys believed down, a fact about the keyboard; an alt-tab wipes it by reconcile.
+        ("bindings.rs", "down"),
+        ("ui_script/input.rs", "pressed"),
     ];
 
     use crate::test_support::{fn_parameter_lists, rust_files};

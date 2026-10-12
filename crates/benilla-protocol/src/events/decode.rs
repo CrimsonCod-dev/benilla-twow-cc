@@ -31,6 +31,9 @@ pub fn decode(packet: ServerPacket) -> Vec<SessionEvent> {
         ServerPacket::CharEnum { characters } => vec![SessionEvent::CharacterList {
             characters,
             realm: None,
+            cause: super::RosterCause::Park,
+            epoch: 0,
+            generation: 0,
         }],
         ServerPacket::CharacterLoginFailed { result } => {
             vec![SessionEvent::CharacterLoginFailed { result }]
@@ -179,12 +182,14 @@ pub fn decode(packet: ServerPacket) -> Vec<SessionEvent> {
             reason,
             required_level,
             item_guid,
+            item2_guid,
             bag_slot,
         } if reason != 0 => {
             vec![SessionEvent::InventoryFailure {
                 reason,
                 required_level,
                 item_guid,
+                item2_guid,
                 bag_slot,
             }]
         }
@@ -1097,6 +1102,7 @@ pub fn decode(packet: ServerPacket) -> Vec<SessionEvent> {
         | ServerPacket::AuthResponse { .. }
         | ServerPacket::CharCreate { .. }
         | ServerPacket::CharDelete { .. }
+        | ServerPacket::CharRename { .. }
         | ServerPacket::AddonInfo { .. } => Vec::new(),
     }
 }

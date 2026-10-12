@@ -237,6 +237,21 @@ pub(crate) struct Creatures {
 }
 
 impl Creatures {
+    /// Whether a display id has a model row behind it (`CreatureDisplayInfo` → `CreatureModelData`),
+    /// the chain `0x5ec480` walks after the race row's id.
+    pub(crate) fn resolves_model(&self, display_id: u32) -> bool {
+        self.catalog.model(display_id).is_some()
+    }
+
+    /// A catalog with no cached models, for tests that only ask whether a display resolves.
+    #[cfg(test)]
+    pub(crate) fn from_catalog(catalog: CreatureCatalog) -> Self {
+        Creatures {
+            catalog,
+            models: HashMap::new(),
+        }
+    }
+
     /// A display's foley material (`Material.dbc` id), the creature half of the footfall rustle.
     pub(crate) fn foley_material(&self, display_id: u32) -> Option<u32> {
         self.catalog.foley_material(display_id)
@@ -860,6 +875,12 @@ fn setup_entities(
                      1.12 table does not (a Turtle-derived DBC) — trusting the DBC",
                     catalog.modified_combos
                 );
+            }
+            commands.insert_resource(CharCreate(catalog));
+        }
+        Ok(catalog) => {
+            if let Some(e) = catalog.name_gen_error() {
+                warn!("NameGen.dbc unavailable, the create screen's random name is empty: {e}");
             }
             commands.insert_resource(CharCreate(catalog));
         }

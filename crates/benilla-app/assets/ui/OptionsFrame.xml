@@ -110,7 +110,8 @@
             BenillaOptionsFrame:SetScale(k)
         end
 
-        -- The era tab width, label + 40, measured after OnShow sets the scale.
+        -- The era tab width, label + 40, measured after the window's OnShow sets the scale:
+        -- the tabs' own OnShows run before it, children first.
         function BenillaOptionsTab_FitWidth(tab)
             tab:SetWidth(getglobal(tab:GetName() .. "Text"):GetStringWidth() + 40)
         end
@@ -262,11 +263,29 @@
             return bottom
         end
 
+        -- The scroll frame's size in its own units, from its edges: its anchors size it, and
+        -- GetWidth answers such a frame's span before the window's scale divides it.
+        local function BenillaOptionsScroll_Size(sf)
+            local l, r, t, b = sf:GetLeft(), sf:GetRight(), sf:GetTop(), sf:GetBottom()
+            if not l or not r or not t or not b then return nil end
+            return r - l, t - b
+        end
+
+        -- The page's range is the body's overhang, the content Fit measures: the engine's range
+        -- also counts the Keybindings list's faux scroll child, which is sized to every row.
+        function BenillaOptionsScroll_Range(sf)
+            local _, fh = BenillaOptionsScroll_Size(sf)
+            if not fh then return 0 end
+            local range = BenillaOptionsFrameContainerBody:GetHeight() - fh
+            if range > 0 then return range end
+            return 0
+        end
+
         -- From OnUpdate, off the previous frame's rects; SetWidth and SetHeight invalidate layout.
         function BenillaOptionsScroll_Fit()
             local sf = BenillaOptionsFrameContainerScroll
             local body = BenillaOptionsFrameContainerBody
-            local fw, fh = sf:GetWidth(), sf:GetHeight()
+            local fw, fh = BenillaOptionsScroll_Size(sf)
             if not fw or fw <= 0 or not fh or fh <= 0 then return end
             if math.abs(body:GetWidth() - fw) >= 0.5 then body:SetWidth(fw) end
             local h = fh
@@ -278,6 +297,9 @@
             if math.abs(body:GetHeight() - h) >= 0.5 then
                 body:SetHeight(h)
                 sf:UpdateScrollChildRect()
+                -- The bar follows the body, which the range notify misses when the engine's range,
+                -- a whole-subtree union, does not move.
+                BenillaScroll_SyncBar(sf)
             end
         end
 
@@ -1341,9 +1363,6 @@
                 <NormalFont inherits="GameFontHighlightSmall"/>
                 <HighlightFont inherits="GameFontHighlightSmall"/>
                 <DisabledFont inherits="GameFontHighlightSmall"/>
-                <Scripts>
-                    <OnShow>BenillaOptionsTab_FitWidth(this)</OnShow>
-                </Scripts>
             </Button>
             <Button name="$parentAddOnsTab">
                 <Size><AbsDimension x="87" y="37"/></Size>
@@ -1371,7 +1390,6 @@
                 <!-- No addon list behind it: disabled, in the era's unselected gold. -->
                 <Scripts>
                     <OnLoad>this:Disable()</OnLoad>
-                    <OnShow>BenillaOptionsTab_FitWidth(this)</OnShow>
                 </Scripts>
             </Button>
 
@@ -1501,7 +1519,10 @@
                         </Anchors>
                         <Scripts>
                             <!-- The loader fires OnLoad bottom-up, so the body already exists. -->
-                            <OnLoad>this:SetScrollChild(BenillaOptionsFrameContainerBody)</OnLoad>
+                            <OnLoad>
+                                this:SetScrollChild(BenillaOptionsFrameContainerBody)
+                                this.contentRange = BenillaOptionsScroll_Range
+                            </OnLoad>
                             <OnUpdate>BenillaOptionsScroll_Fit()</OnUpdate>
                             <!-- An armed Keybindings capsule binds the wheel, search rows included. -->
                             <OnMouseWheel>
@@ -3067,6 +3088,8 @@
             <!-- Controls by default; selection persists and the scale re-fits, as the era's. -->
             <OnShow>
                 BenillaOptionsFrame_UpdateScale()
+                BenillaOptionsTab_FitWidth(BenillaOptionsFrameGameTab)
+                BenillaOptionsTab_FitWidth(BenillaOptionsFrameAddOnsTab)
                 BenillaOptionsFrame_SelectCategory(this.selectedCategory or "Controls")
                 if UpdateMicroButtons then UpdateMicroButtons() end
             </OnShow>

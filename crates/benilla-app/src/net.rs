@@ -84,6 +84,7 @@ impl Plugin for NetPlugin {
             .insert_resource(NetCommands(handles.commands))
             .insert_resource(CharPick(handles.pick))
             .insert_resource(RealmChoice(handles.realm))
+            .insert_resource(RosterPolicy(handles.screen_asks_roster))
             .insert_resource(LoginSubmit(handles.login))
             .insert_resource(LoginAbandon(handles.login_abandon))
             .insert_resource(PingShared(handles.ping))
@@ -118,7 +119,11 @@ impl Plugin for NetPlugin {
             .add_message::<WorldportMessage>()
             .add_message::<RealmListMessage>()
             .add_message::<CharListMessage>()
+            .add_message::<WorldAuthMessage>()
+            .add_message::<RosterFailedMessage>()
+            .add_message::<AddonInfoMessage>()
             .add_message::<CharActionResultMessage>()
+            .add_message::<CharRenameMessage>()
             .add_message::<CharacterLoginFailedMessage>()
             .add_message::<EnteredWorldMessage>()
             .add_message::<WorldEnterCascadeMessage>()
@@ -379,9 +384,89 @@ pub(crate) struct NetEvents(Receiver<SessionEvent>);
 pub(crate) struct NetCommands(pub(crate) Sender<ClientCommand>);
 
 /// The character-select channel to the IO thread parked at select: create and delete are served
-/// in place, re-emitting the roster, until an [`CharRequest::Enter`] moves into the world.
+/// in place, re-emitting the roster (under the native policy), until an [`CharRequest::Enter`]
+/// moves into the world.
 #[derive(Resource)]
-pub(crate) struct CharPick(pub(crate) Sender<CharRequest>);
+pub(crate) struct CharPick(pub(crate) ParkSender<CharRequest>);
+
+/// A request to the IO thread at a park. The character screen's and the realm list's requests
+/// travel on one channel, in the order the app made them: the reference's verbs act at the call
+/// (`GetCharacterListUpdate` sends its `CMSG_CHAR_ENUM`, `ChangeRealm` then closes the link), so
+/// the IO thread must meet them in that order, which two channels cannot give.
+pub(crate) enum ParkRequest {
+    Char(CharRequest),
+    Realm(RealmRequest),
+}
+
+impl From<CharRequest> for ParkRequest {
+    fn from(r: CharRequest) -> Self {
+        ParkRequest::Char(r)
+    }
+}
+
+impl From<RealmRequest> for ParkRequest {
+    fn from(r: RealmRequest) -> Self {
+        ParkRequest::Realm(r)
+    }
+}
+
+/// The IO thread is gone.
+#[derive(Debug)]
+pub(crate) struct ParkGone;
+
+/// The app's end of the park channel for one kind of request.
+pub(crate) enum ParkSender<T> {
+    /// The shared, ordered channel the IO thread reads.
+    Park(Sender<ParkRequest>, std::marker::PhantomData<fn(T)>),
+    /// A channel of that kind alone, for a test that reads the requests itself.
+    #[cfg(test)]
+    Direct(Sender<T>),
+}
+
+impl<T> Clone for ParkSender<T> {
+    fn clone(&self) -> Self {
+        match self {
+            ParkSender::Park(tx, kind) => ParkSender::Park(tx.clone(), *kind),
+            #[cfg(test)]
+            ParkSender::Direct(tx) => ParkSender::Direct(tx.clone()),
+        }
+    }
+}
+
+impl<T> ParkSender<T> {
+    /// The app's end of the IO thread's park channel.
+    pub(super) fn park(tx: Sender<ParkRequest>) -> Self {
+        ParkSender::Park(tx, std::marker::PhantomData)
+    }
+}
+
+impl<T> ParkSender<T> {
+    /// Send a request of either kind, in the order it is made against the rest.
+    pub(crate) fn send_request(&self, request: ParkRequest) -> Result<(), ParkGone> {
+        match self {
+            ParkSender::Park(tx, _) => tx.send(request).map_err(|_| ParkGone),
+            #[cfg(test)]
+            ParkSender::Direct(_) => Err(ParkGone),
+        }
+    }
+}
+
+impl<T: Into<ParkRequest>> ParkSender<T> {
+    pub(crate) fn send(&self, request: T) -> Result<(), ParkGone> {
+        match self {
+            ParkSender::Park(tx, _) => tx.send(request.into()).map_err(|_| ParkGone),
+            #[cfg(test)]
+            ParkSender::Direct(tx) => tx.send(request).map_err(|_| ParkGone),
+        }
+    }
+}
+
+#[cfg(test)]
+impl<T> From<Sender<T>> for ParkSender<T> {
+    fn from(tx: Sender<T>) -> Self {
+        ParkSender::Direct(tx)
+    }
+}
 
 /// One request to the IO thread parked at character select.
 pub(crate) enum CharRequest {
@@ -391,26 +476,53 @@ pub(crate) enum CharRequest {
     Create(benilla_protocol::CharCreateReq),
     /// Delete a character by guid (`CMSG_CHAR_DELETE`), then stay parked at select.
     Delete(u64),
+    /// Rename a character the server flagged for it (`CMSG_CHAR_RENAME`), then stay parked at
+    /// select with the reply.
+    Rename { guid: u64, name: String },
     /// Select's Back: drop the session and return to the pre-logon park.
     Abandon,
+    /// Fetch the roster again (`CMSG_CHAR_ENUM`) on the parked session, then stay parked with
+    /// the fresh roster: `GetCharacterListUpdate`, which the stock screen calls whenever it shows.
+    Enumerate,
 }
+
+/// Whether the screen asks for its roster (the stock glue screens' `GetCharacterListUpdate`)
+/// instead of the IO thread fetching it on reaching the character park (the native screens'). Set
+/// by the UI session as it installs the VM that runs: true with the stock glue VM up, false
+/// otherwise, so a run whose stock VM did not build still gets its roster. The IO thread reads it
+/// as each park is entered.
+#[derive(Resource, Clone)]
+pub(crate) struct RosterPolicy(pub(crate) std::sync::Arc<std::sync::atomic::AtomicBool>);
 
 /// The realm channel: the answer to each [`RealmListMessage`]. Two parks listen, the login-side
 /// one and the character one, since the reference's realm list is a dialog over either screen
 /// (`RealmList.xml` is `frameStrata="DIALOG"`).
 #[derive(Resource)]
-pub(crate) struct RealmChoice(pub(crate) Sender<RealmRequest>);
+pub(crate) struct RealmChoice(pub(crate) ParkSender<RealmRequest>);
 
-/// One request to the IO thread parked at the realm list.
+/// One request to the IO thread about the realm list, served at the logon park and at character
+/// select; at the login park a query fails and the rest are dropped.
 #[derive(Debug)]
 pub(crate) enum RealmRequest {
-    /// Enter this realm, by name: the list refreshes while open, so an index could shift.
-    Enter(String),
-    /// Re-request the realm list (`RequestRealmList`, every 5 s from `RealmList_OnUpdate`).
+    /// Dial this realm (`ConnectToRealm`, `0x46b210`), the record as the list held it, as the
+    /// reference dials its copy (`0xc27fb8`) whatever a later list says. `generation` is the
+    /// abandon generation the app held when it asked: a later Cancel ends the dial however early
+    /// it lands.
+    Enter {
+        realm: benilla_protocol::RealmInfo,
+        generation: u64,
+    },
+    /// Query the realm list (`RequestRealmList`, every 5 s from `RealmList_OnUpdate`); the answer
+    /// is a [`RealmListMessage`], failed when the link gave none.
     Refresh,
-    /// Cancel (`RealmList_OnCancel` only hides the frame): the screen underneath stays, login or
-    /// character select.
-    Abandon,
+    /// `CLoginMgr::Cancel` (`0x5b3320`, from `RealmListDialogCancelled` on the login screen, the
+    /// logon's Cancel and `DisconnectFromServer`): the realmd link closes and the thread parks for
+    /// credentials. At character select, where `RealmListDialogCancelled` is a no-op, nothing.
+    Close,
+    /// `ConnectToRealm` with the world up (`0x46b22b` → `0x5ab1a0`): the session at character
+    /// select drops and the thread returns to the logon park, the realmd link as it was (closed
+    /// since a world entry). Elsewhere, nothing.
+    Leave,
 }
 
 /// The credentials channel to the IO thread's pre-logon park, sent by [`crate::login`].
@@ -418,9 +530,16 @@ pub(crate) enum RealmRequest {
 pub(crate) struct LoginSubmit(pub(crate) Sender<io::LoginRequest>);
 
 /// The login abandon generation: Cancel bumps it, and the IO thread drops an
-/// [`io::LoginRequest`] submitted under an older value.
+/// [`io::LoginRequest`] or a [`RealmRequest::Enter`] asked under an older value.
 #[derive(Resource)]
 pub(crate) struct LoginAbandon(pub(crate) std::sync::Arc<std::sync::atomic::AtomicU64>);
+
+impl LoginAbandon {
+    /// The generation an ask is stamped with now.
+    pub(crate) fn now(abandon: Option<&LoginAbandon>) -> u64 {
+        abandon.map_or(0, |a| a.0.load(std::sync::atomic::Ordering::SeqCst))
+    }
+}
 
 /// Guid to entity for every kind, items included, like the reference's one `ClntObjMgr` index.
 /// Written only by `net::objects`.
@@ -1984,10 +2103,12 @@ pub(crate) enum ClientCommand {
     },
 }
 
-/// The realm list (`CMD_REALM_LIST`); the IO thread waits for [`crate::realm_select`] to pick.
+/// The realm list (`CMD_REALM_LIST`); the IO thread waits for a [`RealmRequest`]. `failed` is a
+/// query that got no answer (`REALM_LIST_FAILED`), `realms` then the list last held.
 #[derive(Message)]
 pub(crate) struct RealmListMessage {
     pub(crate) realms: Vec<benilla_protocol::RealmInfo>,
+    pub(crate) failed: bool,
 }
 
 /// The character roster (`SMSG_CHAR_ENUM`); the IO thread waits for [`crate::char_select`] to
@@ -1996,6 +2117,38 @@ pub(crate) struct RealmListMessage {
 pub(crate) struct CharListMessage {
     pub(crate) characters: Vec<benilla_protocol::Character>,
     pub(crate) realm: Option<benilla_protocol::RealmInfo>,
+    /// What the roster was fetched for.
+    pub(crate) cause: benilla_protocol::RosterCause,
+    /// The world session that sent it ([`WorldAuthMessage::epoch`]).
+    pub(crate) epoch: u64,
+    /// The abandon generation of the attempt that dialed that session.
+    pub(crate) generation: u64,
+}
+
+/// The world server accepted the authentication: the world connect to `realm` is done and the IO
+/// thread is at the character park (`SMSG_AUTH_RESPONSE` success, `0x5ab2b8`).
+#[derive(Message)]
+pub(crate) struct WorldAuthMessage {
+    pub(crate) realm: benilla_protocol::RealmInfo,
+    /// This world session's number, counted per process: what its roster replies carry.
+    pub(crate) epoch: u64,
+    /// The abandon generation of the attempt that dialed it: behind [`LoginAbandon`], the attempt
+    /// was cancelled or disconnected since, and the session is not the screen's.
+    pub(crate) generation: u64,
+}
+
+/// A roster ask on the world session `epoch` failed on the stream.
+#[derive(Message)]
+pub(crate) struct RosterFailedMessage {
+    pub(crate) epoch: u64,
+}
+
+/// The world session read `SMSG_ADDON_INFO` (the handler `0x5b4260`): the addons it hid from the
+/// Lua index space, at the point the reference's listener fires `ADDON_LIST_UPDATE`
+/// (`0x5b4290` → `0x5ab2f0`). [`AddonInfoReply`] holds the same records for a screen built later.
+#[derive(Message)]
+pub(crate) struct AddonInfoMessage {
+    pub(crate) records: Vec<benilla_protocol::messages::AddonRecord>,
 }
 
 /// A character create or delete result; a refreshed [`CharListMessage`] precedes a success.
@@ -2004,6 +2157,14 @@ pub(crate) struct CharListMessage {
 pub(crate) struct CharActionResultMessage {
     pub(crate) action: benilla_protocol::CharAction,
     pub(crate) code: u8,
+}
+
+/// `SMSG_CHAR_RENAME`: the result byte (0 success) and, when the reply carried them, the renamed
+/// character's guid and new name.
+#[derive(Message, Clone)]
+pub(crate) struct CharRenameMessage {
+    pub(crate) result: u8,
+    pub(crate) renamed: Option<(u64, String)>,
 }
 
 /// `SMSG_CHARACTER_LOGIN_FAILED`: the picked character was refused. `result` is the raw reason,
@@ -2030,9 +2191,9 @@ pub(crate) struct WorldEnterCascadeMessage;
 
 /// `SMSG_ADDON_INFO`: the addons the server hid from the Lua index space, or `None` if it did
 /// not answer. A resource, since it must exist before the world-entry UI load runs any addon;
-/// rewritten on every login.
+/// rewritten on every login from the reply its link got.
 #[derive(Resource, Default)]
-pub(crate) struct AddonInfoReply(pub(crate) Option<Vec<String>>);
+pub(crate) struct AddonInfoReply(pub(crate) Option<Vec<benilla_protocol::messages::AddonRecord>>);
 
 /// `SMSG_TRIGGER_CINEMATIC`: a `CinematicSequences.dbc` id; [`crate::cinematic`] plays and acks it.
 #[derive(Message)]
@@ -2064,7 +2225,9 @@ pub(crate) struct LoginQueuedMessage {
     pub(crate) realm: Option<String>,
 }
 
-/// The session ended; the IO thread is back at its pre-logon park.
+/// The world session ended. After a logout or a refused character login ([`SessionEnd::LoggedOut`](
+/// benilla_protocol::SessionEnd::LoggedOut)) the IO thread is back at character select on the
+/// same link; after a loss, at its pre-logon park.
 #[derive(Message, Clone)]
 pub(crate) struct DisconnectedMessage {
     pub(crate) reason: String,
@@ -2076,8 +2239,8 @@ pub(crate) struct DisconnectedMessage {
 }
 
 impl DisconnectedMessage {
-    /// `session_over` is false after a logout (the relist is the select the player asked for) and
-    /// in a run declared unattended ([`crate::run_mode::unattended`]), which reconnects. Not the
+    /// `session_over` is false after a logout (the link is kept and character select is what the
+    /// player asked for) and in a run declared unattended ([`crate::run_mode::unattended`]), which reconnects. Not the
     /// login env vars: a person's launch line sets them too, and a reconnect would take the
     /// account back from whoever displaced us.
     pub(crate) fn new(reason: String, end: benilla_protocol::SessionEnd) -> Self {

@@ -513,7 +513,7 @@ mod tests {
             let got = s
                 .eval::<String>(&format!(
                     "local st, name, id, lo, hi = GetBattlefieldStatus({i}) \
-                     return st .. '|' .. name .. '|' .. id .. '|' .. lo .. '|' .. hi"
+                     return st .. '|' .. (name or '') .. '|' .. id .. '|' .. lo .. '|' .. hi"
                 ))
                 .unwrap();
             assert_eq!(got, "none||0|0|0", "slot {i}");
@@ -531,7 +531,7 @@ mod tests {
         let got = s
             .eval::<String>(
                 "local st, name, id, lo, hi = GetBattlefieldStatus(1) \
-                 return st .. '|' .. name .. '|' .. id .. '|' .. lo .. '|' .. hi",
+                 return st .. '|' .. (name or '') .. '|' .. id .. '|' .. lo .. '|' .. hi",
             )
             .unwrap();
         assert_eq!(got, "queued|Map 489|5|20|29");

@@ -232,6 +232,9 @@ pub(crate) struct JoystickAnchor {
     pub centre: Option<Vec2>,
 }
 
+#[derive(Resource, Default)]
+struct TouchUiPressedEntity(Option<Entity>);
+
 /// Ordering label — everything that *consumes* touch state runs after this.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct TouchInputSet;
@@ -246,6 +249,7 @@ impl Plugin for TouchPlugin {
             .init_resource::<TouchPointer>()
             .init_resource::<JoystickAnchor>()
             .init_resource::<JoystickCfg>()
+            .init_resource::<TouchUiPressedEntity>()
             .add_message::<TouchWorldTap>()
             // `Update` and not `PreUpdate`: `Touches` is refreshed by Bevy's own input pass in
             // `PreUpdate`, so running here needs no explicit `.after(InputSystems)` — every
@@ -288,21 +292,34 @@ type UiNodeQuery<'w, 's> = Query<
     With<Node>,
 >;
 
-fn topmost_ui_node(ui_nodes: &UiNodeQuery, scale: f32, pos: Vec2) -> Option<Entity> {
-    let mut best: Option<(Entity, i32)> = None;
+fn topmost_ui_node(
+    ui_nodes: &UiNodeQuery,
+    parents: &Query<&ChildOf>,
+    scale: f32,
+    pos: Vec2,
+) -> Option<Entity> {
+    let mut best: Option<(Entity, i32, usize)> = None;
 
-    for (entity, node, transform, policy, disabled, vis, interaction, z_index) in ui_nodes {
+    for (entity, node, transform, _policy, disabled, vis, _interaction, z_index) in ui_nodes {
         if vis.is_some_and(|v| !v.get()) || disabled.is_some_and(|d| d.0) {
             continue;
         }
-        if interaction.is_some() || policy.is_some_and(|p| *p == FocusPolicy::Block) {
+        if true {
             if crate::glue::node_hit_test(node, transform, scale, pos) {
                 let z = z_index.map_or(0, |z| z.0);
+                let depth = parents.iter_ancestors(entity).count();
                 match best {
-                    None => best = Some((entity, z)),
-                    Some((best_entity, best_z)) => {
-                        if z > best_z || (z == best_z && entity.index() > best_entity.index()) {
-                            best = Some((entity, z));
+                    None => best = Some((entity, z, depth)),
+                    Some((best_entity, best_z, best_depth)) => {
+                        let is_better = if z != best_z {
+                            z > best_z
+                        } else if depth != best_depth {
+                            depth > best_depth
+                        } else {
+                            entity.index() > best_entity.index()
+                        };
+                        if is_better {
+                            best = Some((entity, z, depth));
                         }
                     }
                 }
@@ -310,7 +327,7 @@ fn topmost_ui_node(ui_nodes: &UiNodeQuery, scale: f32, pos: Vec2) -> Option<Enti
         }
     }
 
-    best.map(|(e, _)| e)
+    best.map(|(e, _, _)| e)
 }
 
 fn classify_touches(
@@ -320,6 +337,7 @@ fn classify_touches(
     window: Query<&Window, With<PrimaryWindow>>,
     script: Option<NonSend<benilla_ui::script::UiScript>>,
     ui_nodes: UiNodeQuery,
+    parents: Query<&ChildOf>,
     mut fingers: ResMut<Fingers>,
     mut mv: ResMut<TouchMove>,
     mut look: ResMut<TouchLook>,
@@ -346,7 +364,6 @@ fn classify_touches(
     let dt = time.delta_secs();
     let (win_w, win_h) = (window.width(), window.height());
 
-    // ── 1. Claim newly-pressed fingers ──────────────────────────────────────────────────────
     for t in touches.iter_just_pressed() {
         if fingers.find(t.id()).is_some() {
             continue;
@@ -360,6 +377,7 @@ fn classify_touches(
         } else if hits_ui(
             script.as_deref(),
             &ui_nodes,
+            &parents,
             window.scale_factor(),
             win_h,
             pos,
@@ -380,7 +398,6 @@ fn classify_touches(
         });
     }
 
-    // ── 2. Advance every live finger ────────────────────────────────────────────────────────
     for f in &mut fingers.active {
         if let Some(t) = touches.get_pressed(f.id) {
             let p = t.position();
@@ -391,7 +408,6 @@ fn classify_touches(
         }
     }
 
-    // ── 3. Publish this frame's outputs ─────────────────────────────────────────────────────
     for f in &fingers.active {
         match f.role {
             Role::Joystick => {
@@ -426,7 +442,6 @@ fn classify_touches(
         }
     }
 
-    // ── 4. Retire released fingers — *after* publishing their release ────────────────────────
     let mut retire: Vec<u64> = Vec::new();
     for f in &fingers.active {
         if touches.just_released(f.id) || touches.get_pressed(f.id).is_none() {
@@ -453,11 +468,11 @@ fn classify_touches(
 fn hits_ui(
     script: Option<&benilla_ui::script::UiScript>,
     ui_nodes: &UiNodeQuery,
+    parents: &Query<&ChildOf>,
     scale: f32,
     win_h: f32,
     pos: Vec2,
 ) -> bool {
-    // 1. FrameXML Lua UI engine hit test
     if let Some(script) = script {
         let s = crate::ui_script::seam_scale(win_h);
         let (x, y) = (pos.x / s, (win_h - pos.y) / s);
@@ -469,8 +484,7 @@ fn hits_ui(
         }
     }
 
-    // 2. Native Bevy UI hit test
-    topmost_ui_node(ui_nodes, scale, pos).is_some()
+    topmost_ui_node(ui_nodes, parents, scale, pos).is_some()
 }
 
 /// Drives `Interaction` components on Bevy UI entities from `TouchPointer`.
@@ -478,41 +492,98 @@ fn hits_ui(
 fn drive_touch_ui_interactions(
     pointer: Res<TouchPointer>,
     window: Query<&'static Window, With<PrimaryWindow>>,
-    ui_nodes: UiNodeQuery,
-    mut interactions: Query<&'static mut Interaction>,
+    parents: Query<&'static ChildOf>,
+    mut pressed_state: ResMut<TouchUiPressedEntity>,
+    mut ui_nodes: Query<
+        (
+            Entity,
+            &'static mut Interaction,
+            &'static ComputedNode,
+            &'static UiGlobalTransform,
+            Option<&'static FocusPolicy>,
+            Option<&'static crate::glue::widgets::GlueDisabled>,
+            Option<&'static InheritedVisibility>,
+            Option<&'static GlobalZIndex>,
+        ),
+        With<Node>,
+    >,
 ) {
     let Some(pos) = pointer.pos else {
+        pressed_state.0 = None;
         return;
     };
     let Ok(window) = window.single() else {
+        pressed_state.0 = None;
         return;
     };
     let scale = window.scale_factor();
 
-    let top_entity = topmost_ui_node(&ui_nodes, scale, pos);
+    // Reconstruct UiNodeQuery parameter structure for topmost_ui_node lookup
+    let top_hit = {
+        let mut best: Option<(Entity, i32, usize)> = None;
+        for (entity, _interaction, node, transform, _policy, disabled, vis, z_index) in &ui_nodes {
+            if vis.is_some_and(|v| !v.get()) || disabled.is_some_and(|d| d.0) {
+                continue;
+            }
+            if crate::glue::node_hit_test(node, transform, scale, pos) {
+                let z = z_index.map_or(0, |z| z.0);
+                let depth = parents.iter_ancestors(entity).count();
+                match best {
+                    None => best = Some((entity, z, depth)),
+                    Some((best_entity, best_z, best_depth)) => {
+                        let is_better = if z != best_z {
+                            z > best_z
+                        } else if depth != best_depth {
+                            depth > best_depth
+                        } else {
+                            entity.index() > best_entity.index()
+                        };
+                        if is_better {
+                            best = Some((entity, z, depth));
+                        }
+                    }
+                }
+            }
+        }
+        best.map(|(e, _, _)| e)
+    };
 
-    for (entity, _node, _transform, _policy, _disabled, _vis, interaction, _z) in &ui_nodes {
-        if interaction.is_none() {
+    if pointer.just_pressed {
+        pressed_state.0 = top_hit;
+    }
+
+    let latched = pressed_state.0;
+
+    for (entity, mut interaction, _node, _transform, _policy, disabled, vis, _z) in &mut ui_nodes {
+        if disabled.is_some_and(|d| d.0) || vis.is_some_and(|v| !v.get()) {
+            if *interaction != Interaction::None {
+                *interaction = Interaction::None;
+            }
             continue;
         }
-        let Ok(mut interaction) = interactions.get_mut(entity) else {
-            continue;
-        };
-        if Some(entity) == top_entity {
-            let want = if pointer.just_released {
-                Interaction::Hovered
-            } else {
-                Interaction::Pressed
-            };
-            if *interaction != want {
-                *interaction = want;
+
+        if Some(entity) == latched {
+            if Some(entity) == top_hit {
+                let want = if pointer.just_released {
+                    Interaction::Hovered
+                } else {
+                    Interaction::Pressed
+                };
+                if *interaction != want {
+                    *interaction = want;
+                }
+            } else if *interaction != Interaction::None {
+                *interaction = Interaction::None;
             }
         } else if *interaction != Interaction::None {
             *interaction = Interaction::None;
         }
     }
-}
 
+    if pointer.just_released {
+        pressed_state.0 = None;
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -531,7 +602,6 @@ mod tests {
         }
     }
 
-    /// The dead zone rescale: just past the edge must be a *small* deflection, not a jump to 0.2.
     #[test]
     fn dead_zone_rescales_instead_of_stepping() {
         let c = cfg();
@@ -543,7 +613,6 @@ mod tests {
         );
     }
 
-    /// 8-way digital output: a clean diagonal lights both axes.
     #[test]
     fn diagonal_lights_both_axes() {
         let v = Vec2::new(0.7, 0.7);
@@ -551,7 +620,6 @@ mod tests {
         assert!(v.y > ON && v.x > ON);
     }
 
-    /// A straight push lights one axis only.
     #[test]
     fn cardinal_push_lights_one_axis() {
         let v = Vec2::new(0.05, 0.9);
@@ -560,7 +628,6 @@ mod tests {
         assert!(v.x <= ON && v.x >= -ON);
     }
 
-    /// The zone test is bottom-left: a touch top-right is never the stick.
     #[test]
     fn zone_is_bottom_left() {
         let c = cfg();
@@ -572,8 +639,6 @@ mod tests {
         assert!(!inz(top_right));
     }
 
-    /// A slow scrub that ends where it started is a drag, not a tap — distance is measured along
-    /// the path, not end-to-end.
     #[test]
     fn travel_is_path_length_not_displacement() {
         let c = cfg();
@@ -628,7 +693,6 @@ mod tests {
 
         app.world_mut().resource_mut::<JoystickCfg>().enabled = true;
 
-        // Spawn a Bevy UI button with 200x100 size centered at (500, 400)
         let button = app
             .world_mut()
             .spawn((
@@ -652,7 +716,6 @@ mod tests {
 
         app.update();
 
-        // 1. Verify touch classification
         let fingers = app.world().resource::<Fingers>();
         assert_eq!(fingers.active.len(), 1);
         assert_eq!(fingers.active[0].role, Role::Ui);
@@ -661,11 +724,9 @@ mod tests {
         assert_eq!(pointer.pos, Some(touch_location));
         assert!(pointer.just_pressed);
 
-        // 2. Verify Interaction changed to Pressed
         let interaction = *app.world().get::<Interaction>(button).unwrap();
         assert_eq!(interaction, Interaction::Pressed);
 
-        // Simulate touch release
         app.world_mut().write_message(TouchInput {
             phase: TouchPhase::Ended,
             position: touch_location,
@@ -676,7 +737,6 @@ mod tests {
 
         app.update();
 
-        // 3. Verify release registered a click in GlueClicks
         let clicks = app.world().resource::<GlueClicks>();
         assert!(
             clicks.hit(button),
@@ -713,7 +773,6 @@ mod tests {
 
         app.world_mut().resource_mut::<JoystickCfg>().enabled = true;
 
-        // Bottom button (Z = 0)
         let bottom_btn = app
             .world_mut()
             .spawn((
@@ -727,7 +786,6 @@ mod tests {
             ))
             .id();
 
-        // Modal top button (Z = 100)
         let top_btn = app
             .world_mut()
             .spawn((
@@ -741,7 +799,6 @@ mod tests {
             ))
             .id();
 
-        // Hidden button (Z = 200, but hidden)
         let _hidden_btn = app
             .world_mut()
             .spawn((
@@ -766,16 +823,129 @@ mod tests {
 
         app.update();
 
-        // Topmost visible button (Z = 100) gets Pressed; lower button stays None
         assert_eq!(
             *app.world().get::<Interaction>(top_btn).unwrap(),
             Interaction::Pressed
         );
         assert_eq!(
-            *app.world()
-                .get::<Interaction>(bottom_left_btn_or_none(app.world(), bottom_btn))
-                .unwrap(),
+            *app.world().get::<Interaction>(bottom_btn).unwrap(),
             Interaction::None
+        );
+    }
+
+    #[test]
+    fn touch_drag_off_prevents_button_transfer() {
+        use crate::glue::GlueClicks;
+        use bevy::input::touch::{TouchInput, TouchPhase};
+
+        let mut app = App::new();
+        app.add_plugins((
+            bevy::time::TimePlugin,
+            bevy::input::InputPlugin,
+            bevy::window::WindowPlugin {
+                primary_window: None,
+                exit_condition: bevy::window::ExitCondition::DontExit,
+                ..default()
+            },
+        ))
+        .init_resource::<GlueClicks>()
+        .add_plugins(TouchPlugin)
+        .add_systems(
+            PreUpdate,
+            crate::glue::glue_clicks.after(bevy::ui::UiSystems::Focus),
+        );
+
+        let window = app
+            .world_mut()
+            .spawn((
+                Window {
+                    resolution: bevy::window::WindowResolution::new(1000, 800),
+                    ..default()
+                },
+                PrimaryWindow,
+            ))
+            .id();
+
+        app.world_mut().resource_mut::<JoystickCfg>().enabled = true;
+
+        let btn_a = app
+            .world_mut()
+            .spawn((
+                Node::default(),
+                Button,
+                Interaction::None,
+                ComputedNode::from_size(Vec2::new(100.0, 100.0)),
+                UiGlobalTransform::from(Transform::from_translation(Vec3::new(400.0, 400.0, 0.0))),
+                InheritedVisibility::VISIBLE,
+            ))
+            .id();
+
+        let btn_b = app
+            .world_mut()
+            .spawn((
+                Node::default(),
+                Button,
+                Interaction::None,
+                ComputedNode::from_size(Vec2::new(100.0, 100.0)),
+                UiGlobalTransform::from(Transform::from_translation(Vec3::new(600.0, 400.0, 0.0))),
+                InheritedVisibility::VISIBLE,
+            ))
+            .id();
+
+        // 1. Touchdown on btn_a (400, 400)
+        app.world_mut().write_message(TouchInput {
+            phase: TouchPhase::Started,
+            position: Vec2::new(400.0, 400.0),
+            force: None,
+            id: 1,
+            window,
+        });
+
+        app.update();
+        assert_eq!(
+            *app.world().get::<Interaction>(btn_a).unwrap(),
+            Interaction::Pressed
+        );
+        assert_eq!(
+            *app.world().get::<Interaction>(btn_b).unwrap(),
+            Interaction::None
+        );
+
+        // 2. Drag finger onto btn_b (600, 400)
+        app.world_mut().write_message(TouchInput {
+            phase: TouchPhase::Moved,
+            position: Vec2::new(600.0, 400.0),
+            force: None,
+            id: 1,
+            window,
+        });
+
+        app.update();
+        // btn_a loses press, btn_b MUST NOT gain press
+        assert_eq!(
+            *app.world().get::<Interaction>(btn_a).unwrap(),
+            Interaction::None
+        );
+        assert_eq!(
+            *app.world().get::<Interaction>(btn_b).unwrap(),
+            Interaction::None
+        );
+
+        // 3. Release over btn_b
+        app.world_mut().write_message(TouchInput {
+            phase: TouchPhase::Ended,
+            position: Vec2::new(600.0, 400.0),
+            force: None,
+            id: 1,
+            window,
+        });
+
+        app.update();
+        let clicks = app.world().resource::<GlueClicks>();
+        assert!(!clicks.hit(btn_a), "btn_a was not released over");
+        assert!(
+            !clicks.hit(btn_b),
+            "btn_b was never pressed, so drag-off release cannot click btn_b"
         );
     }
 }

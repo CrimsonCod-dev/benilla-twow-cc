@@ -30,7 +30,6 @@ use bevy::prelude::*;
 use crate::char_select::ClientState;
 use crate::ui_script::UiKeyboardCapture;
 
-#[allow(dead_code)]
 pub(crate) struct AndroidKeyboardPlugin;
 
 impl Plugin for AndroidKeyboardPlugin {

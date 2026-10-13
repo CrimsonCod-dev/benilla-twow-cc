@@ -20,6 +20,7 @@
 static ALLOC: assert_no_alloc::AllocDisabler = assert_no_alloc::AllocDisabler;
 
 pub mod addon_harness;
+#[cfg(target_os = "android")]
 mod android_keyboard;
 mod area;
 mod area_poi;

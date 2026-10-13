@@ -66,27 +66,139 @@ jobs:
 
       - name: cargo build --profile ship -p benilla
         if: github.event_name == 'release' || inputs.build_type == 'ship' || inputs.build_type == 'both'
-        run: cargo build --profile ship --locked --no-default-features -p benilla
+        shell: bash
+        run: |
+          cargo build --profile ship --locked --no-default-features -p benilla
+          cp target/ship/benilla.exe target/ship/benilla-windows-x86_64.exe
 
       - name: Upload ship build artifact
         if: (github.event_name == 'release' || inputs.upload_artifact == true) && (github.event_name == 'release' || inputs.build_type == 'ship' || inputs.build_type == 'both')
         uses: actions/upload-artifact@v4
         with:
           name: benilla-windows-x64-ship-${{ env.SHORT_SHA }}
-          path: target/ship/benilla.exe
+          path: target/ship/benilla-windows-x86_64.exe
           retention-days: 7
           if-no-files-found: error
 
       - name: cargo build -p benilla (dev profile)
         if: inputs.build_type == 'dev' || inputs.build_type == 'both'
-        run: cargo build --release --locked -p benilla
+        shell: bash
+        run: |
+          cargo build --release --locked -p benilla
+          cp target/release/benilla.exe target/release/benilla-windows-dev-x86_64.exe
 
       - name: Upload dev build artifact
         if: inputs.upload_artifact == true && (inputs.build_type == 'dev' || inputs.build_type == 'both')
         uses: actions/upload-artifact@v4
         with:
           name: benilla-windows-x64-dev-${{ env.SHORT_SHA }}
-          path: target/release/benilla.exe
+          path: target/release/benilla-windows-dev-x86_64.exe
+          retention-days: 7
+          if-no-files-found: error
+
+  linux:
+    name: build (linux)
+    if: github.event_name == 'release' || inputs.platform == 'linux' || inputs.platform == 'all'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set Short SHA
+        run: echo "SHORT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y libasound2-dev libudev-dev pkg-config
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: linux-${{ inputs.build_type || 'ship' }}
+          cache-on-failure: true
+
+      - name: cargo build --profile ship -p benilla
+        if: github.event_name == 'release' || inputs.build_type == 'ship' || inputs.build_type == 'both'
+        run: |
+          cargo build --profile ship --locked --no-default-features -p benilla
+          cp target/ship/benilla target/ship/benilla-linux-x86_64
+
+      - name: Upload ship build artifact
+        if: (github.event_name == 'release' || inputs.upload_artifact == true) && (github.event_name == 'release' || inputs.build_type == 'ship' || inputs.build_type == 'both')
+        uses: actions/upload-artifact@v4
+        with:
+          name: benilla-linux-x64-ship-${{ env.SHORT_SHA }}
+          path: target/ship/benilla-linux-x86_64
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: cargo build -p benilla (dev profile)
+        if: inputs.build_type == 'dev' || inputs.build_type == 'both'
+        run: |
+          cargo build --release --locked -p benilla
+          cp target/release/benilla target/release/benilla-linux-dev-x86_64
+
+      - name: Upload dev build artifact
+        if: inputs.upload_artifact == true && (inputs.build_type == 'dev' || inputs.build_type == 'both')
+        uses: actions/upload-artifact@v4
+        with:
+          name: benilla-linux-x64-dev-${{ env.SHORT_SHA }}
+          path: target/release/benilla-linux-dev-x86_64
+          retention-days: 7
+          if-no-files-found: error
+
+  macos:
+    name: build (macos)
+    if: github.event_name == 'release' || inputs.platform == 'macos' || inputs.platform == 'all'
+    runs-on: macos-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set Short SHA
+        shell: bash
+        run: echo "SHORT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: macos-${{ inputs.build_type || 'ship' }}
+          cache-on-failure: true
+
+      - name: cargo build --profile ship -p benilla
+        if: github.event_name == 'release' || inputs.build_type == 'ship' || inputs.build_type == 'both'
+        run: |
+          cargo build --profile ship --locked --no-default-features -p benilla
+          cp target/ship/benilla target/ship/benilla-macos-x86_64
+
+      - name: Upload ship build artifact
+        if: (github.event_name == 'release' || inputs.upload_artifact == true) && (github.event_name == 'release' || inputs.build_type == 'ship' || inputs.build_type == 'both')
+        uses: actions/upload-artifact@v4
+        with:
+          name: benilla-macos-x64-ship-${{ env.SHORT_SHA }}
+          path: target/ship/benilla-macos-x86_64
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: cargo build -p benilla (dev profile)
+        if: inputs.build_type == 'dev' || inputs.build_type == 'both'
+        run: |
+          cargo build --release --locked -p benilla
+          cp target/release/benilla target/release/benilla-macos-dev-x86_64
+
+      - name: Upload dev build artifact
+        if: inputs.upload_artifact == true && (inputs.build_type == 'dev' || inputs.build_type == 'both')
+        uses: actions/upload-artifact@v4
+        with:
+          name: benilla-macos-x64-dev-${{ env.SHORT_SHA }}
+          path: target/release/benilla-macos-dev-x86_64
           retention-days: 7
           if-no-files-found: error
 
@@ -172,9 +284,13 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "release" ] || [ "${{ inputs.build_type }}" = "ship" ] || [ "${{ inputs.build_type }}" = "both" ]; then
             cargo apk build --profile ship -p benilla-android
+            mkdir -p target/ship/apk
+            cp target/ship/apk/*.apk target/ship/apk/benilla-android-aarch64.apk 2>/dev/null || true
           fi
           if [ "${{ inputs.build_type }}" = "dev" ] || [ "${{ inputs.build_type }}" = "both" ]; then
             cargo apk build -p benilla-android --features benilla-app/dev
+            mkdir -p target/debug/apk
+            cp target/debug/apk/*.apk target/debug/apk/benilla-android-dev-aarch64.apk 2>/dev/null || true
           fi
 
       - name: Upload Android build artifact
@@ -183,107 +299,9 @@ jobs:
         with:
           name: benilla-android-arm64-${{ env.SHORT_SHA }}
           path: |
-            target/ship/apk/*.apk
+            target/ship/apk/benilla-android-aarch64.apk
             target/release/apk/*.apk
-            target/debug/apk/*.apk
-          retention-days: 7
-          if-no-files-found: error
-
-  linux:
-    name: build (linux)
-    if: github.event_name == 'release' || inputs.platform == 'linux' || inputs.platform == 'all'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out
-        uses: actions/checkout@v4
-
-      - name: Set Short SHA
-        run: echo "SHORT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
-
-      - name: Install Linux system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y libasound2-dev libudev-dev pkg-config
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: linux-${{ inputs.build_type || 'ship' }}
-          cache-on-failure: true
-
-      - name: cargo build --profile ship -p benilla
-        if: github.event_name == 'release' || inputs.build_type == 'ship' || inputs.build_type == 'both'
-        run: cargo build --profile ship --locked --no-default-features -p benilla
-
-      - name: Upload ship build artifact
-        if: (github.event_name == 'release' || inputs.upload_artifact == true) && (github.event_name == 'release' || inputs.build_type == 'ship' || inputs.build_type == 'both')
-        uses: actions/upload-artifact@v4
-        with:
-          name: benilla-linux-x64-ship-${{ env.SHORT_SHA }}
-          path: target/ship/benilla
-          retention-days: 7
-          if-no-files-found: error
-
-      - name: cargo build -p benilla (dev profile)
-        if: inputs.build_type == 'dev' || inputs.build_type == 'both'
-        run: cargo build --release --locked -p benilla
-
-      - name: Upload dev build artifact
-        if: inputs.upload_artifact == true && (inputs.build_type == 'dev' || inputs.build_type == 'both')
-        uses: actions/upload-artifact@v4
-        with:
-          name: benilla-linux-x64-dev-${{ env.SHORT_SHA }}
-          path: target/release/benilla
-          retention-days: 7
-          if-no-files-found: error
-
-  macos:
-    name: build (macos)
-    if: github.event_name == 'release' || inputs.platform == 'macos' || inputs.platform == 'all'
-    runs-on: macos-latest
-    steps:
-      - name: Check out
-        uses: actions/checkout@v4
-
-      - name: Set Short SHA
-        shell: bash
-        run: echo "SHORT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: macos-${{ inputs.build_type || 'ship' }}
-          cache-on-failure: true
-
-      - name: cargo build --profile ship -p benilla
-        if: github.event_name == 'release' || inputs.build_type == 'ship' || inputs.build_type == 'both'
-        run: cargo build --profile ship --locked --no-default-features -p benilla
-
-      - name: Upload ship build artifact
-        if: (github.event_name == 'release' || inputs.upload_artifact == true) && (github.event_name == 'release' || inputs.build_type == 'ship' || inputs.build_type == 'both')
-        uses: actions/upload-artifact@v4
-        with:
-          name: benilla-macos-x64-ship-${{ env.SHORT_SHA }}
-          path: target/ship/benilla
-          retention-days: 7
-          if-no-files-found: error
-
-      - name: cargo build -p benilla (dev profile)
-        if: inputs.build_type == 'dev' || inputs.build_type == 'both'
-        run: cargo build --release --locked -p benilla
-
-      - name: Upload dev build artifact
-        if: inputs.upload_artifact == true && (inputs.build_type == 'dev' || inputs.build_type == 'both')
-        uses: actions/upload-artifact@v4
-        with:
-          name: benilla-macos-x64-dev-${{ env.SHORT_SHA }}
-          path: target/release/benilla
+            target/debug/apk/benilla-android-dev-aarch64.apk
           retention-days: 7
           if-no-files-found: error
 

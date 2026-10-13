@@ -1763,14 +1763,20 @@ mod tests {
     #[test]
     fn another_self_avatar_forgets_the_players_memories() {
         let mut memo = UnitFeedMemo::default();
-        assert!(!memo.see_self(1), "the first sighting is an entry, nothing to forget");
+        assert!(
+            !memo.see_self(1),
+            "the first sighting is an entry, nothing to forget"
+        );
         memo.entered_world = true;
         memo.last_level = Some(60);
         memo.last_xp = Some((1, 2));
         assert!(!memo.see_self(1), "the same avatar again");
         assert_eq!(memo.last_level, Some(60));
         assert!(memo.see_self(7), "another avatar");
-        assert_eq!(memo.last_level, None, "its level is a first sighting, not a ding");
+        assert_eq!(
+            memo.last_level, None,
+            "its level is a first sighting, not a ding"
+        );
         assert_eq!(memo.last_xp, None);
         assert!(!memo.entered_world, "and it enters the world again");
     }

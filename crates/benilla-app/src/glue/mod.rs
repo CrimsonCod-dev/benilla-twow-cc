@@ -145,7 +145,12 @@ pub(crate) fn glue_clicks(
 /// Is `pos` (logical px, y-down, [`crate::touch::TouchPointer`]'s space) inside `node`'s rect?
 /// [`ComputedNode::size`] and the [`UiGlobalTransform`] translation are physical px and the
 /// translation is the node's centre, so both take `/ scale` first.
-fn node_hit_test(node: &ComputedNode, transform: &UiGlobalTransform, scale: f32, pos: Vec2) -> bool {
+pub(crate) fn node_hit_test(
+    node: &ComputedNode,
+    transform: &UiGlobalTransform,
+    scale: f32,
+    pos: Vec2,
+) -> bool {
     let half = node.size() / scale * 0.5;
     let center = transform.translation / scale;
     (center - half).cmple(pos).all() && pos.cmple(center + half).all()

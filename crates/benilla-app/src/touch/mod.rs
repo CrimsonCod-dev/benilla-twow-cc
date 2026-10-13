@@ -47,6 +47,7 @@
 
 use bevy::input::touch::Touches;
 use bevy::prelude::*;
+use bevy::ui::FocusPolicy;
 use bevy::window::PrimaryWindow;
 
 mod joystick;
@@ -253,23 +254,39 @@ impl Plugin for TouchPlugin {
             // Before the UI feed, which reads `TouchPointer`, and so before the world input that
             // runs after the UI pass.
             .configure_sets(Update, TouchInputSet.before(crate::ui_script::UiInput))
-            .add_systems(Update, classify_touches.in_set(TouchInputSet))
+            .add_systems(
+                Update,
+                (classify_touches, drive_touch_ui_interactions)
+                    .chain()
+                    .in_set(TouchInputSet),
+            )
             .add_plugins(joystick::JoystickVisualsPlugin);
     }
 }
 
 /// The arbiter. Runs once per frame, before anything reads touch state.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "one pass owns the whole arbitration; splitting it would mean publishing half-built \
-              frame state between systems, which is exactly the class of bug this replaces"
-)]
+#[allow(clippy::too_many_arguments)]
+type UiNodeQuery<'w, 's> = Query<
+    'w,
+    's,
+    (
+        &'static ComputedNode,
+        &'static UiGlobalTransform,
+        Option<&'static FocusPolicy>,
+        Option<&'static crate::glue::widgets::GlueDisabled>,
+        Option<&'static Visibility>,
+        Option<&'static Interaction>,
+    ),
+    With<Node>,
+>;
+
 fn classify_touches(
     touches: Res<Touches>,
     time: Res<Time<Real>>,
     cfg: Res<JoystickCfg>,
     window: Query<&Window, With<PrimaryWindow>>,
     script: Option<NonSend<benilla_ui::script::UiScript>>,
+    ui_nodes: UiNodeQuery,
     mut fingers: ResMut<Fingers>,
     mut mv: ResMut<TouchMove>,
     mut look: ResMut<TouchLook>,
@@ -312,7 +329,13 @@ fn classify_touches(
             // The stick wins its zone outright — see the module doc on full-screen addon frames.
             anchor.centre = Some(pos);
             Role::Joystick
-        } else if hits_ui(script.as_deref(), win_h, pos) {
+        } else if hits_ui(
+            script.as_deref(),
+            &ui_nodes,
+            window.scale_factor(),
+            win_h,
+            pos,
+        ) {
             Role::Ui
         } else {
             Role::Look
@@ -418,20 +441,85 @@ fn classify_touches(
 /// the engine's y-up space, then divide by the seam scale into its 768-virtual units.
 fn hits_ui(
     script: Option<&benilla_ui::script::UiScript>,
+    ui_nodes: &UiNodeQuery,
+    scale: f32,
     win_h: f32,
     pos: Vec2,
 ) -> bool {
-    let Some(script) = script else {
-        return false;
+    // 1. FrameXML Lua UI engine hit test
+    if let Some(script) = script {
+        let s = crate::ui_script::seam_scale(win_h);
+        let (x, y) = (pos.x / s, (win_h - pos.y) / s);
+        if script
+            .hit_test(x, y)
+            .is_some_and(|id| !script.is_world_frame(id))
+        {
+            return true;
+        }
+    }
+
+    // 2. Native Bevy UI hit test (glue screens: Login, CharSelect, CharCreate, RealmSelect, Dialogs)
+    for (node, transform, policy, disabled, vis, interaction) in ui_nodes {
+        if disabled.is_some_and(|d| d.0) || vis.is_some_and(|v| *v == Visibility::Hidden) {
+            continue;
+        }
+        if interaction.is_some() || policy.is_some_and(|p| *p == FocusPolicy::Block) {
+            if crate::glue::node_hit_test(node, transform, scale, pos) {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+/// Drives `Interaction` components on Bevy UI entities from `TouchPointer`.
+///
+/// On touch devices without a physical mouse pointer, Bevy's built-in `ui_focus_system`
+/// sees `cursor_position() == None`. This system updates `Interaction` for active Bevy UI nodes
+/// touched by the user so that edit boxes focus, buttons enter pushed state, and `glue_clicks`
+/// registers the release click.
+#[allow(clippy::type_complexity)]
+fn drive_touch_ui_interactions(
+    pointer: Res<TouchPointer>,
+    window: Query<&'static Window, With<PrimaryWindow>>,
+    mut ui_nodes: Query<(
+        Entity,
+        &'static mut Interaction,
+        &'static ComputedNode,
+        &'static UiGlobalTransform,
+        Option<&'static crate::glue::widgets::GlueDisabled>,
+        Option<&'static Visibility>,
+    )>,
+) {
+    let Some(pos) = pointer.pos else {
+        return;
     };
-    let s = crate::ui_script::seam_scale(win_h);
-    let (x, y) = (pos.x / s, (win_h - pos.y) / s);
-    // The world frame is mouse-enabled by construction but its hit belongs to the WORLD
-    // (decision 1983) — otherwise every swipe over open terrain would classify as `Role::Ui` and
-    // the camera would never move.
-    script
-        .hit_test(x, y)
-        .is_some_and(|id| !script.is_world_frame(id))
+    let Ok(window) = window.single() else {
+        return;
+    };
+    let scale = window.scale_factor();
+
+    for (_entity, mut interaction, node, transform, disabled, vis) in &mut ui_nodes {
+        if disabled.is_some_and(|d| d.0) || vis.is_some_and(|v| *v == Visibility::Hidden) {
+            if *interaction != Interaction::None {
+                *interaction = Interaction::None;
+            }
+            continue;
+        }
+        if crate::glue::node_hit_test(node, transform, scale, pos) {
+            let want = if pointer.just_released {
+                Interaction::Hovered
+            } else {
+                Interaction::Pressed
+            };
+            if *interaction != want {
+                *interaction = want;
+            }
+        } else if *interaction != Interaction::None {
+            *interaction = Interaction::None;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -458,7 +546,10 @@ mod tests {
         let c = cfg();
         let len = c.dead_zone + 0.01;
         let scaled = (len - c.dead_zone) / (1.0 - c.dead_zone);
-        assert!(scaled < 0.02, "first step outside the dead zone must be small");
+        assert!(
+            scaled < 0.02,
+            "first step outside the dead zone must be small"
+        );
     }
 
     /// 8-way digital output: a clean diagonal lights both axes.
@@ -508,6 +599,94 @@ mod tests {
         assert!(
             travel > c.tap_max_px,
             "a round trip must not read as a stationary tap"
+        );
+    }
+
+    #[test]
+    fn touch_on_bevy_ui_node_classifies_as_role_ui_and_sets_pressed() {
+        use crate::glue::GlueClicks;
+        use bevy::input::touch::{TouchInput, TouchPhase};
+
+        let mut app = App::new();
+        app.add_plugins((
+            bevy::input::InputPlugin,
+            bevy::window::WindowPlugin {
+                primary_window: None,
+                exit_condition: bevy::window::ExitCondition::DontExit,
+                ..default()
+            },
+        ))
+        .init_resource::<GlueClicks>()
+        .add_plugins(TouchPlugin)
+        .add_systems(Update, crate::glue::glue_clicks);
+
+        let window = app
+            .world_mut()
+            .spawn((
+                Window {
+                    resolution: bevy::window::WindowResolution::new(1000, 800),
+                    ..default()
+                },
+                PrimaryWindow,
+            ))
+            .id();
+
+        // Enable touch mode in test
+        app.world_mut().resource_mut::<JoystickCfg>().enabled = true;
+
+        // Spawn a Bevy UI button at (500, 400)
+        let button = app
+            .world_mut()
+            .spawn((
+                Node::default(),
+                Button,
+                Interaction::None,
+                ComputedNode::default(),
+                UiGlobalTransform::default(),
+            ))
+            .id();
+
+        // Simulate touchdown at (500, 400)
+        let touch_location = Vec2::new(500.0, 400.0);
+        app.world_mut().write_message(TouchInput {
+            phase: TouchPhase::Started,
+            position: touch_location,
+            force: None,
+            id: 1,
+            window,
+        });
+
+        app.update();
+
+        // 1. Verify touch classification
+        let fingers = app.world().resource::<Fingers>();
+        assert_eq!(fingers.active.len(), 1);
+        assert_eq!(fingers.active[0].role, Role::Ui);
+
+        let pointer = app.world().resource::<TouchPointer>();
+        assert_eq!(pointer.pos, Some(touch_location));
+        assert!(pointer.just_pressed);
+
+        // 2. Verify Interaction changed to Pressed
+        let interaction = *app.world().get::<Interaction>(button).unwrap();
+        assert_eq!(interaction, Interaction::Pressed);
+
+        // Simulate touch release
+        app.world_mut().write_message(TouchInput {
+            phase: TouchPhase::Ended,
+            position: touch_location,
+            force: None,
+            id: 1,
+            window,
+        });
+
+        app.update();
+
+        // 3. Verify release registered a click in GlueClicks
+        let clicks = app.world().resource::<GlueClicks>();
+        assert!(
+            clicks.hit(button),
+            "touch release must register in GlueClicks"
         );
     }
 }

@@ -1586,16 +1586,7 @@ mod tests {
             (s.class.as_deref(), s.class_file.as_deref()),
             (Some("Warrior"), Some("WARRIOR"))
         );
-        let s = member_unit_state(
-            &m,
-            None,
-            None,
-            &group,
-            None,
-            None,
-            Default::default(),
-            None,
-        );
+        let s = member_unit_state(&m, None, None, &group, None, None, Default::default(), None);
         assert_eq!((s.class, s.class_file), (None, None));
     }
 

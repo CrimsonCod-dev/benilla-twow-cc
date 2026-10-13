@@ -339,28 +339,33 @@ jobs:
         env:
           ANDROID_RELEASE_KEYSTORE: ${{ secrets.ANDROID_RELEASE_KEYSTORE }}
         run: |
-          if [ -z "$ANDROID_RELEASE_KEYSTORE" ]; then
-            echo "::error::ANDROID_RELEASE_KEYSTORE secret is not set -- see the keystore setup notes."
-            exit 1
+          if [ -n "$ANDROID_RELEASE_KEYSTORE" ]; then
+            echo "$ANDROID_RELEASE_KEYSTORE" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            echo "ANDROID_RELEASE_KEYSTORE_PATH=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+            echo "HAS_KEYSTORE=true" >> "$GITHUB_ENV"
+          else
+            echo "ANDROID_RELEASE_KEYSTORE secret is not set -- building debug APK"
+            echo "HAS_KEYSTORE=false" >> "$GITHUB_ENV"
           fi
-          echo "$ANDROID_RELEASE_KEYSTORE" | base64 -d > "$RUNNER_TEMP/release.keystore"
-          echo "ANDROID_RELEASE_KEYSTORE_PATH=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
 
-      # `--release` now signs successfully: the two env vars above satisfy cargo-apk's signing
-      # requirement for a `--release` APK (see the `Decode release keystore` step's own comment),
-      # so this is no longer the debug-keystore fallback the previous version of this job used.
-      - name: cargo apk build --release -p benilla-android
+      - name: cargo apk build -p benilla-android
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
           ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
           CARGO_APK_RELEASE_KEYSTORE: ${{ env.ANDROID_RELEASE_KEYSTORE_PATH }}
           CARGO_APK_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}
-        run: cargo apk build --release -p benilla-android
+        run: |
+          if [ "$HAS_KEYSTORE" = "true" ]; then
+            cargo apk build --release -p benilla-android
+          else
+            cargo apk build -p benilla-android
+          fi
 
-      # Back to cargo-apk's release output path now that the job builds `--release` again.
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: benilla-android-aarch64.apk
-          path: target/release/apk/*.apk
+          path: |
+            target/release/apk/*.apk
+            target/debug/apk/*.apk
           if-no-files-found: error

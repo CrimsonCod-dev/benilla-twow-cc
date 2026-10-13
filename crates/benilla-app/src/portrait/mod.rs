@@ -1558,7 +1558,15 @@ fn sync_portraits(
             // and a fresh particle pool contributes nothing to one frame.
             log_frame(token, &anchors, &frame(&anchors).0);
             aim(&mut cams, token, &frame(&anchors));
-            log_bake(token, "bake", display_id, &parts, &riders, &billboards, &effects);
+            log_bake(
+                token,
+                "bake",
+                display_id,
+                &parts,
+                &riders,
+                &billboards,
+                &effects,
+            );
             wake_booth(
                 booth,
                 &wow_mats,
@@ -1900,7 +1908,15 @@ fn sync_body_booth(
         booth.aspect = aspect;
         let Some(anchors) = anchors_now else {
             booth.wake = booth.wake.max(BOOTH_SETTLE_FRAMES);
-            log_bake(slot, "wait-anchors", display_id, &parts, &riders, &billboards, &effects);
+            log_bake(
+                slot,
+                "wait-anchors",
+                display_id,
+                &parts,
+                &riders,
+                &billboards,
+                &effects,
+            );
             return;
         };
         let rig = creatures
@@ -1989,7 +2005,15 @@ fn sync_body_booth(
         booth.parked = false;
         log_frame(slot, &anchors, &body_frame(&anchors, aspect).0);
         aim(cams, slot, &body_frame(&anchors, aspect));
-        log_bake(slot, "bake", display_id, &parts, &riders, &billboards, &effects);
+        log_bake(
+            slot,
+            "bake",
+            display_id,
+            &parts,
+            &riders,
+            &billboards,
+            &effects,
+        );
         wake_booth(
             booth,
             wow_mats,

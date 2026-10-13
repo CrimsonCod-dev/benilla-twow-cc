@@ -588,11 +588,17 @@ fn parse_race_icon_tcoords(text: &str) -> Option<HashMap<u8, [[f32; 4]; 2]>> {
     let mut cells: HashMap<u8, [[f32; 4]; 2]> = HashMap::new();
     for line in block[..end].lines() {
         let Some(eq) = line.find('=') else { continue };
-        let Some(key_end) = line[..eq].find("\"]") else { continue };
+        let Some(key_end) = line[..eq].find("\"]") else {
+            continue;
+        };
         let key = &line[..key_end + 1];
-        let Some(key_start) = key.find("[\"") else { continue };
+        let Some(key_start) = key.find("[\"") else {
+            continue;
+        };
         let key = &key[key_start + 2..key.len() - 1];
-        let Some((name, sex)) = key.rsplit_once('_') else { continue };
+        let Some((name, sex)) = key.rsplit_once('_') else {
+            continue;
+        };
         let (Some(race), Some(sex_idx)) = (
             RACE_FILES
                 .iter()
@@ -607,7 +613,9 @@ fn parse_race_icon_tcoords(text: &str) -> Option<HashMap<u8, [[f32; 4]; 2]>> {
             continue;
         };
         let Some(open) = line.find('{') else { continue };
-        let Some(close) = line.find('}') else { continue };
+        let Some(close) = line.find('}') else {
+            continue;
+        };
         let nums: Option<Vec<f32>> = line[open + 1..close]
             .split(',')
             .map(|p| p.trim().parse::<f32>().ok())
@@ -616,7 +624,11 @@ fn parse_race_icon_tcoords(text: &str) -> Option<HashMap<u8, [[f32; 4]; 2]>> {
         let rect: [f32; 4] = nums[..4].try_into().ok()?;
         cells.entry(race).or_insert([[0.0; 4]; 2])[sex_idx] = rect;
     }
-    if cells.is_empty() { None } else { Some(cells) }
+    if cells.is_empty() {
+        None
+    } else {
+        Some(cells)
+    }
 }
 
 /// A race's cell in `UI-CharacterCreate-Races` (col, row; female is row + 2), `RACE_ICON_TCOORDS`.

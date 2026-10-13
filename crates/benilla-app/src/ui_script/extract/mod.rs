@@ -1257,7 +1257,10 @@ fn convert_entry(
             let Some(slot) = name
                 .as_deref()
                 .and_then(crate::portrait::model_pane_booth)
-                .or_else(|| unit.as_deref().and_then(crate::portrait::unit_portrait_slot))
+                .or_else(|| {
+                    unit.as_deref()
+                        .and_then(crate::portrait::unit_portrait_slot)
+                })
             else {
                 return;
             };

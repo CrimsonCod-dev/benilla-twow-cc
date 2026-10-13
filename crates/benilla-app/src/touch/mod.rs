@@ -45,8 +45,10 @@
 //! only consulted by the UI pass when the window reports no cursor of its own. A real mouse takes
 //! the same path it always did.
 
+use bevy::camera::visibility::InheritedVisibility;
 use bevy::input::touch::Touches;
 use bevy::prelude::*;
+use bevy::ui::FocusPolicy;
 use bevy::window::PrimaryWindow;
 
 mod joystick;
@@ -230,6 +232,9 @@ pub(crate) struct JoystickAnchor {
     pub centre: Option<Vec2>,
 }
 
+#[derive(Resource, Default)]
+struct TouchUiPressedEntity(Option<Entity>);
+
 /// Ordering label — everything that *consumes* touch state runs after this.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct TouchInputSet;
@@ -244,6 +249,7 @@ impl Plugin for TouchPlugin {
             .init_resource::<TouchPointer>()
             .init_resource::<JoystickAnchor>()
             .init_resource::<JoystickCfg>()
+            .init_resource::<TouchUiPressedEntity>()
             .add_message::<TouchWorldTap>()
             // `Update` and not `PreUpdate`: `Touches` is refreshed by Bevy's own input pass in
             // `PreUpdate`, so running here needs no explicit `.after(InputSystems)` — every
@@ -252,24 +258,86 @@ impl Plugin for TouchPlugin {
             // `Update` too, ordered behind `TouchInputSet`.
             // Before the UI feed, which reads `TouchPointer`, and so before the world input that
             // runs after the UI pass.
-            .configure_sets(Update, TouchInputSet.before(crate::ui_script::UiInput))
-            .add_systems(Update, classify_touches.in_set(TouchInputSet))
+            .configure_sets(
+                PreUpdate,
+                TouchInputSet
+                    .after(bevy::input::InputSystems)
+                    .before(bevy::ui::UiSystems::Focus),
+            )
+            .add_systems(
+                PreUpdate,
+                (classify_touches, drive_touch_ui_interactions)
+                    .chain()
+                    .in_set(TouchInputSet),
+            )
             .add_plugins(joystick::JoystickVisualsPlugin);
     }
 }
 
 /// The arbiter. Runs once per frame, before anything reads touch state.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "one pass owns the whole arbitration; splitting it would mean publishing half-built \
-              frame state between systems, which is exactly the class of bug this replaces"
-)]
+#[allow(clippy::too_many_arguments)]
+type UiNodeQuery<'w, 's> = Query<
+    'w,
+    's,
+    (
+        Entity,
+        &'static ComputedNode,
+        &'static UiGlobalTransform,
+        Option<&'static FocusPolicy>,
+        Option<&'static crate::glue::widgets::GlueDisabled>,
+        Option<&'static InheritedVisibility>,
+        Option<&'static Interaction>,
+        Option<&'static GlobalZIndex>,
+    ),
+    With<Node>,
+>;
+
+fn topmost_ui_node(
+    ui_nodes: &UiNodeQuery,
+    parents: &Query<&ChildOf>,
+    scale: f32,
+    pos: Vec2,
+) -> Option<Entity> {
+    let mut best: Option<(Entity, i32, usize)> = None;
+
+    for (entity, node, transform, _policy, disabled, vis, _interaction, z_index) in ui_nodes {
+        if vis.is_some_and(|v| !v.get()) || disabled.is_some_and(|d| d.0) {
+            continue;
+        }
+        if true {
+            if crate::glue::node_hit_test(node, transform, scale, pos) {
+                let z = z_index.map_or(0, |z| z.0);
+                let depth = parents.iter_ancestors(entity).count();
+                match best {
+                    None => best = Some((entity, z, depth)),
+                    Some((best_entity, best_z, best_depth)) => {
+                        let is_better = if z != best_z {
+                            z > best_z
+                        } else if depth != best_depth {
+                            depth > best_depth
+                        } else {
+                            entity.index() > best_entity.index()
+                        };
+                        if is_better {
+                            best = Some((entity, z, depth));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    best.map(|(e, _, _)| e)
+}
+
 fn classify_touches(
     touches: Res<Touches>,
     time: Res<Time<Real>>,
     cfg: Res<JoystickCfg>,
     window: Query<&Window, With<PrimaryWindow>>,
     script: Option<NonSend<benilla_ui::script::UiScript>>,
+    ui_nodes: UiNodeQuery,
+    parents: Query<&ChildOf>,
     mut fingers: ResMut<Fingers>,
     mut mv: ResMut<TouchMove>,
     mut look: ResMut<TouchLook>,
@@ -296,11 +364,6 @@ fn classify_touches(
     let dt = time.delta_secs();
     let (win_w, win_h) = (window.width(), window.height());
 
-    // ── 1. Claim newly-pressed fingers ──────────────────────────────────────────────────────
-    //
-    // Classification happens here and nowhere else. Note this reads `iter_just_pressed()`, which
-    // is authoritative for "came down this frame" regardless of how many fingers are already
-    // resting — the coin-flip that `iter().next()` used to run is gone entirely.
     for t in touches.iter_just_pressed() {
         if fingers.find(t.id()).is_some() {
             continue;
@@ -309,10 +372,16 @@ fn classify_touches(
         let in_zone = pos.x <= win_w * cfg.zone_w && pos.y >= win_h * (1.0 - cfg.zone_h);
 
         let role = if in_zone && !fingers.has_role(Role::Joystick) {
-            // The stick wins its zone outright — see the module doc on full-screen addon frames.
             anchor.centre = Some(pos);
             Role::Joystick
-        } else if hits_ui(script.as_deref(), win_h, pos) {
+        } else if hits_ui(
+            script.as_deref(),
+            &ui_nodes,
+            &parents,
+            window.scale_factor(),
+            win_h,
+            pos,
+        ) {
             Role::Ui
         } else {
             Role::Look
@@ -329,7 +398,6 @@ fn classify_touches(
         });
     }
 
-    // ── 2. Advance every live finger ────────────────────────────────────────────────────────
     for f in &mut fingers.active {
         if let Some(t) = touches.get_pressed(f.id) {
             let p = t.position();
@@ -340,27 +408,20 @@ fn classify_touches(
         }
     }
 
-    // ── 3. Publish this frame's outputs ─────────────────────────────────────────────────────
     for f in &fingers.active {
         match f.role {
             Role::Joystick => {
                 let centre = anchor.centre.unwrap_or(f.start);
-                // y is flipped into the movement model's y-up: screen-up must read as forward.
                 let raw = Vec2::new(f.pos.x - centre.x, centre.y - f.pos.y) / cfg.radius;
                 let len = raw.length();
                 let v = if len <= cfg.dead_zone {
                     Vec2::ZERO
                 } else {
-                    // Rescale past the dead zone so the very first movement outside it is a
-                    // *small* one. Without this the stick jumps straight to `dead_zone` worth of
-                    // deflection the instant it engages, which reads as a twitch.
                     let scaled = ((len - cfg.dead_zone) / (1.0 - cfg.dead_zone)).min(1.0);
                     raw / len * scaled
                 };
                 mv.analog = v;
                 mv.engaged = true;
-                // Digital thresholds. 0.35 on each axis gives clean 8-way output: pushing
-                // diagonally lights both axes, pushing straight lights one.
                 const ON: f32 = 0.35;
                 mv.forward = v.y > ON;
                 mv.backward = v.y < -ON;
@@ -381,17 +442,9 @@ fn classify_touches(
         }
     }
 
-    // ── 4. Retire released fingers — *after* publishing their release ────────────────────────
-    //
-    // This is the fix for the dropped-release bug. A finger that lifted this frame is still in
-    // `fingers.active` at this point, so its last known position is still available to hand to the
-    // UI, and the release is reported alongside it. Only then is it dropped.
     let mut retire: Vec<u64> = Vec::new();
     for f in &fingers.active {
         if touches.just_released(f.id) || touches.get_pressed(f.id).is_none() {
-            // `get_pressed().is_none()` is the belt to `just_released`'s braces: a touch cancelled
-            // by the OS (a system gesture, an incoming call) never reports a release at all, and a
-            // finger left in `active` forever would pin the joystick or the look session on.
             match f.role {
                 Role::Ui => {
                     pointer.pos = Some(f.pos);
@@ -412,28 +465,125 @@ fn classify_touches(
     fingers.active.retain(|f| !retire.contains(&f.id));
 }
 
-/// Does a touchdown at `pos` (logical px, y-down) land on a mouse-enabled UI frame?
-///
-/// Mirrors the coordinate conversion the UI pass already does: flip through the window height into
-/// the engine's y-up space, then divide by the seam scale into its 768-virtual units.
 fn hits_ui(
     script: Option<&benilla_ui::script::UiScript>,
+    ui_nodes: &UiNodeQuery,
+    parents: &Query<&ChildOf>,
+    scale: f32,
     win_h: f32,
     pos: Vec2,
 ) -> bool {
-    let Some(script) = script else {
-        return false;
-    };
-    let s = crate::ui_script::seam_scale(win_h);
-    let (x, y) = (pos.x / s, (win_h - pos.y) / s);
-    // The world frame is mouse-enabled by construction but its hit belongs to the WORLD
-    // (decision 1983) — otherwise every swipe over open terrain would classify as `Role::Ui` and
-    // the camera would never move.
-    script
-        .hit_test(x, y)
-        .is_some_and(|id| !script.is_world_frame(id))
+    if let Some(script) = script {
+        let s = crate::ui_script::seam_scale(win_h);
+        let (x, y) = (pos.x / s, (win_h - pos.y) / s);
+        if script
+            .hit_test(x, y)
+            .is_some_and(|id| !script.is_world_frame(id))
+        {
+            return true;
+        }
+    }
+
+    topmost_ui_node(ui_nodes, parents, scale, pos).is_some()
 }
 
+/// Drives `Interaction` components on Bevy UI entities from `TouchPointer`.
+#[allow(clippy::type_complexity)]
+fn drive_touch_ui_interactions(
+    pointer: Res<TouchPointer>,
+    window: Query<&'static Window, With<PrimaryWindow>>,
+    parents: Query<&'static ChildOf>,
+    mut pressed_state: ResMut<TouchUiPressedEntity>,
+    mut ui_nodes: Query<
+        (
+            Entity,
+            &'static mut Interaction,
+            &'static ComputedNode,
+            &'static UiGlobalTransform,
+            Option<&'static FocusPolicy>,
+            Option<&'static crate::glue::widgets::GlueDisabled>,
+            Option<&'static InheritedVisibility>,
+            Option<&'static GlobalZIndex>,
+        ),
+        With<Node>,
+    >,
+) {
+    let Some(pos) = pointer.pos else {
+        pressed_state.0 = None;
+        return;
+    };
+    let Ok(window) = window.single() else {
+        pressed_state.0 = None;
+        return;
+    };
+    let scale = window.scale_factor();
+
+    // Reconstruct UiNodeQuery parameter structure for topmost_ui_node lookup
+    let top_hit = {
+        let mut best: Option<(Entity, i32, usize)> = None;
+        for (entity, _interaction, node, transform, _policy, disabled, vis, z_index) in &ui_nodes {
+            if vis.is_some_and(|v| !v.get()) || disabled.is_some_and(|d| d.0) {
+                continue;
+            }
+            if crate::glue::node_hit_test(node, transform, scale, pos) {
+                let z = z_index.map_or(0, |z| z.0);
+                let depth = parents.iter_ancestors(entity).count();
+                match best {
+                    None => best = Some((entity, z, depth)),
+                    Some((best_entity, best_z, best_depth)) => {
+                        let is_better = if z != best_z {
+                            z > best_z
+                        } else if depth != best_depth {
+                            depth > best_depth
+                        } else {
+                            entity.index() > best_entity.index()
+                        };
+                        if is_better {
+                            best = Some((entity, z, depth));
+                        }
+                    }
+                }
+            }
+        }
+        best.map(|(e, _, _)| e)
+    };
+
+    if pointer.just_pressed {
+        pressed_state.0 = top_hit;
+    }
+
+    let latched = pressed_state.0;
+
+    for (entity, mut interaction, _node, _transform, _policy, disabled, vis, _z) in &mut ui_nodes {
+        if disabled.is_some_and(|d| d.0) || vis.is_some_and(|v| !v.get()) {
+            if *interaction != Interaction::None {
+                *interaction = Interaction::None;
+            }
+            continue;
+        }
+
+        if Some(entity) == latched {
+            if Some(entity) == top_hit {
+                let want = if pointer.just_released {
+                    Interaction::Hovered
+                } else {
+                    Interaction::Pressed
+                };
+                if *interaction != want {
+                    *interaction = want;
+                }
+            } else if *interaction != Interaction::None {
+                *interaction = Interaction::None;
+            }
+        } else if *interaction != Interaction::None {
+            *interaction = Interaction::None;
+        }
+    }
+
+    if pointer.just_released {
+        pressed_state.0 = None;
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -452,16 +602,17 @@ mod tests {
         }
     }
 
-    /// The dead zone rescale: just past the edge must be a *small* deflection, not a jump to 0.2.
     #[test]
     fn dead_zone_rescales_instead_of_stepping() {
         let c = cfg();
         let len = c.dead_zone + 0.01;
         let scaled = (len - c.dead_zone) / (1.0 - c.dead_zone);
-        assert!(scaled < 0.02, "first step outside the dead zone must be small");
+        assert!(
+            scaled < 0.02,
+            "first step outside the dead zone must be small"
+        );
     }
 
-    /// 8-way digital output: a clean diagonal lights both axes.
     #[test]
     fn diagonal_lights_both_axes() {
         let v = Vec2::new(0.7, 0.7);
@@ -469,7 +620,6 @@ mod tests {
         assert!(v.y > ON && v.x > ON);
     }
 
-    /// A straight push lights one axis only.
     #[test]
     fn cardinal_push_lights_one_axis() {
         let v = Vec2::new(0.05, 0.9);
@@ -478,7 +628,6 @@ mod tests {
         assert!(v.x <= ON && v.x >= -ON);
     }
 
-    /// The zone test is bottom-left: a touch top-right is never the stick.
     #[test]
     fn zone_is_bottom_left() {
         let c = cfg();
@@ -490,8 +639,6 @@ mod tests {
         assert!(!inz(top_right));
     }
 
-    /// A slow scrub that ends where it started is a drag, not a tap — distance is measured along
-    /// the path, not end-to-end.
     #[test]
     fn travel_is_path_length_not_displacement() {
         let c = cfg();
@@ -508,6 +655,297 @@ mod tests {
         assert!(
             travel > c.tap_max_px,
             "a round trip must not read as a stationary tap"
+        );
+    }
+
+    #[test]
+    fn touch_on_bevy_ui_node_classifies_as_role_ui_and_sets_pressed() {
+        use crate::glue::GlueClicks;
+        use bevy::input::touch::{TouchInput, TouchPhase};
+
+        let mut app = App::new();
+        app.add_plugins((
+            bevy::time::TimePlugin,
+            bevy::input::InputPlugin,
+            bevy::window::WindowPlugin {
+                primary_window: None,
+                exit_condition: bevy::window::ExitCondition::DontExit,
+                ..default()
+            },
+        ))
+        .init_resource::<GlueClicks>()
+        .add_plugins(TouchPlugin)
+        .add_systems(
+            PreUpdate,
+            crate::glue::glue_clicks.after(bevy::ui::UiSystems::Focus),
+        );
+
+        let window = app
+            .world_mut()
+            .spawn((
+                Window {
+                    resolution: bevy::window::WindowResolution::new(1000, 800),
+                    ..default()
+                },
+                PrimaryWindow,
+            ))
+            .id();
+
+        app.world_mut().resource_mut::<JoystickCfg>().enabled = true;
+
+        let button = app
+            .world_mut()
+            .spawn((
+                Node::default(),
+                Button,
+                Interaction::None,
+                ComputedNode::from_size(Vec2::new(200.0, 100.0)),
+                UiGlobalTransform::from(Transform::from_translation(Vec3::new(500.0, 400.0, 0.0))),
+                InheritedVisibility::VISIBLE,
+            ))
+            .id();
+
+        let touch_location = Vec2::new(500.0, 400.0);
+        app.world_mut().write_message(TouchInput {
+            phase: TouchPhase::Started,
+            position: touch_location,
+            force: None,
+            id: 1,
+            window,
+        });
+
+        app.update();
+
+        let fingers = app.world().resource::<Fingers>();
+        assert_eq!(fingers.active.len(), 1);
+        assert_eq!(fingers.active[0].role, Role::Ui);
+
+        let pointer = app.world().resource::<TouchPointer>();
+        assert_eq!(pointer.pos, Some(touch_location));
+        assert!(pointer.just_pressed);
+
+        let interaction = *app.world().get::<Interaction>(button).unwrap();
+        assert_eq!(interaction, Interaction::Pressed);
+
+        app.world_mut().write_message(TouchInput {
+            phase: TouchPhase::Ended,
+            position: touch_location,
+            force: None,
+            id: 1,
+            window,
+        });
+
+        app.update();
+
+        let clicks = app.world().resource::<GlueClicks>();
+        assert!(
+            clicks.hit(button),
+            "touch release must register in GlueClicks"
+        );
+    }
+
+    #[test]
+    fn touch_respects_z_index_and_hidden_visibility() {
+        use bevy::input::touch::{TouchInput, TouchPhase};
+
+        let mut app = App::new();
+        app.add_plugins((
+            bevy::time::TimePlugin,
+            bevy::input::InputPlugin,
+            bevy::window::WindowPlugin {
+                primary_window: None,
+                exit_condition: bevy::window::ExitCondition::DontExit,
+                ..default()
+            },
+        ))
+        .add_plugins(TouchPlugin);
+
+        let window = app
+            .world_mut()
+            .spawn((
+                Window {
+                    resolution: bevy::window::WindowResolution::new(1000, 800),
+                    ..default()
+                },
+                PrimaryWindow,
+            ))
+            .id();
+
+        app.world_mut().resource_mut::<JoystickCfg>().enabled = true;
+
+        let bottom_btn = app
+            .world_mut()
+            .spawn((
+                Node::default(),
+                Button,
+                Interaction::None,
+                ComputedNode::from_size(Vec2::new(200.0, 100.0)),
+                UiGlobalTransform::from(Transform::from_translation(Vec3::new(500.0, 400.0, 0.0))),
+                InheritedVisibility::VISIBLE,
+                GlobalZIndex(0),
+            ))
+            .id();
+
+        let top_btn = app
+            .world_mut()
+            .spawn((
+                Node::default(),
+                Button,
+                Interaction::None,
+                ComputedNode::from_size(Vec2::new(200.0, 100.0)),
+                UiGlobalTransform::from(Transform::from_translation(Vec3::new(500.0, 400.0, 0.0))),
+                InheritedVisibility::VISIBLE,
+                GlobalZIndex(100),
+            ))
+            .id();
+
+        let _hidden_btn = app
+            .world_mut()
+            .spawn((
+                Node::default(),
+                Button,
+                Interaction::None,
+                ComputedNode::from_size(Vec2::new(200.0, 100.0)),
+                UiGlobalTransform::from(Transform::from_translation(Vec3::new(500.0, 400.0, 0.0))),
+                InheritedVisibility::HIDDEN,
+                GlobalZIndex(200),
+            ))
+            .id();
+
+        let touch_location = Vec2::new(500.0, 400.0);
+        app.world_mut().write_message(TouchInput {
+            phase: TouchPhase::Started,
+            position: touch_location,
+            force: None,
+            id: 1,
+            window,
+        });
+
+        app.update();
+
+        assert_eq!(
+            *app.world().get::<Interaction>(top_btn).unwrap(),
+            Interaction::Pressed
+        );
+        assert_eq!(
+            *app.world().get::<Interaction>(bottom_btn).unwrap(),
+            Interaction::None
+        );
+    }
+
+    #[test]
+    fn touch_drag_off_prevents_button_transfer() {
+        use crate::glue::GlueClicks;
+        use bevy::input::touch::{TouchInput, TouchPhase};
+
+        let mut app = App::new();
+        app.add_plugins((
+            bevy::time::TimePlugin,
+            bevy::input::InputPlugin,
+            bevy::window::WindowPlugin {
+                primary_window: None,
+                exit_condition: bevy::window::ExitCondition::DontExit,
+                ..default()
+            },
+        ))
+        .init_resource::<GlueClicks>()
+        .add_plugins(TouchPlugin)
+        .add_systems(
+            PreUpdate,
+            crate::glue::glue_clicks.after(bevy::ui::UiSystems::Focus),
+        );
+
+        let window = app
+            .world_mut()
+            .spawn((
+                Window {
+                    resolution: bevy::window::WindowResolution::new(1000, 800),
+                    ..default()
+                },
+                PrimaryWindow,
+            ))
+            .id();
+
+        app.world_mut().resource_mut::<JoystickCfg>().enabled = true;
+
+        let btn_a = app
+            .world_mut()
+            .spawn((
+                Node::default(),
+                Button,
+                Interaction::None,
+                ComputedNode::from_size(Vec2::new(100.0, 100.0)),
+                UiGlobalTransform::from(Transform::from_translation(Vec3::new(400.0, 400.0, 0.0))),
+                InheritedVisibility::VISIBLE,
+            ))
+            .id();
+
+        let btn_b = app
+            .world_mut()
+            .spawn((
+                Node::default(),
+                Button,
+                Interaction::None,
+                ComputedNode::from_size(Vec2::new(100.0, 100.0)),
+                UiGlobalTransform::from(Transform::from_translation(Vec3::new(600.0, 400.0, 0.0))),
+                InheritedVisibility::VISIBLE,
+            ))
+            .id();
+
+        // 1. Touchdown on btn_a (400, 400)
+        app.world_mut().write_message(TouchInput {
+            phase: TouchPhase::Started,
+            position: Vec2::new(400.0, 400.0),
+            force: None,
+            id: 1,
+            window,
+        });
+
+        app.update();
+        assert_eq!(
+            *app.world().get::<Interaction>(btn_a).unwrap(),
+            Interaction::Pressed
+        );
+        assert_eq!(
+            *app.world().get::<Interaction>(btn_b).unwrap(),
+            Interaction::None
+        );
+
+        // 2. Drag finger onto btn_b (600, 400)
+        app.world_mut().write_message(TouchInput {
+            phase: TouchPhase::Moved,
+            position: Vec2::new(600.0, 400.0),
+            force: None,
+            id: 1,
+            window,
+        });
+
+        app.update();
+        // btn_a loses press, btn_b MUST NOT gain press
+        assert_eq!(
+            *app.world().get::<Interaction>(btn_a).unwrap(),
+            Interaction::None
+        );
+        assert_eq!(
+            *app.world().get::<Interaction>(btn_b).unwrap(),
+            Interaction::None
+        );
+
+        // 3. Release over btn_b
+        app.world_mut().write_message(TouchInput {
+            phase: TouchPhase::Ended,
+            position: Vec2::new(600.0, 400.0),
+            force: None,
+            id: 1,
+            window,
+        });
+
+        app.update();
+        let clicks = app.world().resource::<GlueClicks>();
+        assert!(!clicks.hit(btn_a), "btn_a was not released over");
+        assert!(
+            !clicks.hit(btn_b),
+            "btn_b was never pressed, so drag-off release cannot click btn_b"
         );
     }
 }

@@ -177,7 +177,9 @@ impl TextEngine {
         };
         for &path in CLIENT_FONTS {
             let Some(bytes) = read_font_bytes(&source, path) else {
-                warn!("ui_text: failed to read {path} from the patch chain or benilla-config/Fonts");
+                warn!(
+                    "ui_text: failed to read {path} from the patch chain or benilla-config/Fonts"
+                );
                 continue;
             };
             let ascent_ratio = hhea_ascent_ratio(&bytes).unwrap_or(0.794);

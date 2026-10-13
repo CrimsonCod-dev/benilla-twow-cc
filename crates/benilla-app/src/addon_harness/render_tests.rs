@@ -3,9 +3,9 @@
 
 use std::path::{Path, PathBuf};
 
-use super::{survey, Drew};
 #[cfg(not(unix))]
 use super::use_probe_tests::copy_dir_recursive;
+use super::{survey, Drew};
 
 /// One throwaway AddOns root, cleaned up on drop even if a test panics.
 struct Fixtures(PathBuf);

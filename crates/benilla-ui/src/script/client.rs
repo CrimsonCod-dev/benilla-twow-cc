@@ -432,10 +432,15 @@ mod tests {
                 "#,
             )
             .unwrap();
-        assert!(f, "the chunk must see names from the environment it switched to");
         assert!(
-            s.eval::<bool>("return PFENV.defined_in_env == 42 and rawget(_G, 'defined_in_env') == nil")
-                .unwrap(),
+            f,
+            "the chunk must see names from the environment it switched to"
+        );
+        assert!(
+            s.eval::<bool>(
+                "return PFENV.defined_in_env == 42 and rawget(_G, 'defined_in_env') == nil"
+            )
+            .unwrap(),
             "globals written after setfenv(1, env) must land in env, not _G"
         );
     }
@@ -444,8 +449,8 @@ mod tests {
     #[test]
     fn setfenv_on_a_function_value_takes_effect_on_its_next_call() {
         let s = UiScript::new().unwrap();
-        assert!(
-            s.eval::<bool>(
+        assert!(s
+            .eval::<bool>(
                 r#"
                 local env = setmetatable({ marker = "in-env" }, { __index = getfenv(0) })
                 local fn = loadstring("return marker")
@@ -453,16 +458,15 @@ mod tests {
                 return fn() == "in-env" and marker == nil
                 "#
             )
-            .unwrap()
-        );
+            .unwrap());
     }
 
     /// `getfenv(fn)` reads back what `setfenv(fn, env)` wrote.
     #[test]
     fn getfenv_reads_back_what_setfenv_wrote() {
         let s = UiScript::new().unwrap();
-        assert!(
-            s.eval::<bool>(
+        assert!(s
+            .eval::<bool>(
                 r#"
                 local env = {}
                 local fn = loadstring("return 1")
@@ -470,8 +474,7 @@ mod tests {
                 return getfenv(fn) == env
                 "#
             )
-            .unwrap()
-        );
+            .unwrap());
     }
 
     /// `IsWindowsClient` (`0x48c960`) pushes 1 and `IsLinuxClient` (`0x48c990`) nil, one value

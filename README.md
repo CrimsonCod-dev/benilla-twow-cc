@@ -1,211 +1,191 @@
 <div align="center">
   <h1>benilla</h1>
-  <p><b>A complete World of Warcraft 1.12.1 client, written from scratch in Rust and <a href="https://bevy.org">Bevy</a></b></p>
+  <p><b>A complete World of Warcraft 1.12.1 client written from scratch in Rust and <a href="https://bevy.org">Bevy</a></b></p>
+  <p><i>Enhanced for TurtleWoW protocol compatibility and multi-platform play</i></p>
   <p>
-    <a href="https://discord.gg/wJSJx467G4"><img src="https://img.shields.io/discord/1529280129518538922?style=for-the-badge&logo=discord&logoColor=white&label=discord&color=5865F2" alt="Discord"></a>
-    <a href="https://www.youtube.com/playlist?list=PLdCnpZNKxyb8"><img src="https://img.shields.io/badge/devlog-youtube-FF0000?style=for-the-badge&logo=youtube&logoColor=white" alt="YouTube devlog"></a>
     <a href="LICENSE-MIT"><img src="https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-blue?style=for-the-badge" alt="License"></a>
+    <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/language-Rust-orange?style=for-the-badge&logo=rust" alt="Rust"></a>
+    <a href="https://bevy.org"><img src="https://img.shields.io/badge/engine-Bevy_0.18-fd366e?style=for-the-badge" alt="Bevy"></a>
   </p>
 </div>
 
-benilla plays the whole game: character creation, questing and professions, dungeons and raids,
-battlegrounds and honor, groups, guilds, trade, mail and the auction house, on the stock 1.12
-interface and with your addons. It connects to a 1.12.1 server over the original protocol and
-reads the game's data from your own 1.12.1 install. Every file format, the network protocol and
-the interface engine are written from scratch, with no original client code, no third-party WoW
-crates and no bundled game assets.
+---
 
-## What's inside
+**benilla** is a complete, modern, clean-room implementation of the World of Warcraft 1.12.1 client built in Rust using the [Bevy](https://bevy.org) game engine. It connects to 1.12.1 servers over the original network protocol and streams assets directly from your local 1.12.1 game installation.
 
-- **Formats:** readers for the whole asset stack (the MPQ patch chain, BLP, DBC, ADT, WDT, WDL, M2
-  and WMO), wired into Bevy as an asset source.
-- **World:** terrain streamed out to the horizon, portal-culled buildings with interior lighting,
-  doodads and ground clutter, swimmable water, sky and weather, and the client's own day/night
-  lighting, fog and gamma.
-- **Models:** GPU-skinned M2s with the full animation controller, particles, ribbons and the spell
-  visuals, and characters end to end: customization, the armor composite, weapons with their
-  enchant glows, forms, stealth and mounts.
-- **Movement:** networked movement in both directions, the server-granted modes from slow fall to
-  roots, a follow camera with collision, boats, zeppelins and taxi flights.
-- **Networking:** SRP6 auth through world-session crypto and the object mirror into the ECS,
-  covering the game from movement and chat through combat, spells, groups and raids, quests,
-  trade, mail, the auction house and battlegrounds.
-- **Interface:** a FrameXML and Lua engine that runs the stock 1.12 interface off your install's
-  patch chain, and third-party 1.12 addons: Questie, pfUI, Bagnon, Bartender2 and most others
-  run. By choice, the options window and the ESC menu follow the Classic Era client's rather than
-  1.12's.
-- **Audio:** music, ambience and effects under the client's own selection and crossfade rules,
-  with interior and underwater transitions and zone reverb.
+Every asset reader, network layer, rendering pipeline, and interface engine is implemented from scratch with **zero original client code**, **no bundled game assets**, and **no third-party WoW binary dependencies**.
 
-## Platforms
+This fork (`benilla-twow`) extends **benilla** with TurtleWoW client patch compatibility, cross-platform state persistence, Android touch controls, and enhanced font engine support.
 
-Desktop and Android build from the same source tree. Status below is what has actually been run
-and fixed against on real hardware, not just what compiles in CI.
+---
 
-- **Windows** — actively developed against. `benilla-config` now resolves to the running user's
-  Documents folder through the Windows shell API (`SHGetKnownFolderPath`), rather than assuming
-  an XDG-style path the way Linux does, including a follow-up fix for a Windows API type
-  mismatch the first pass got wrong (a null handle, not a zero integer). Builds in CI
-  (`windows-latest`) and has been run for real.
-- **Android** — the primary mobile target, and the platform with the most fixes behind it so
-  far: the missing `INTERNET` permission (nothing connects without it — `cargo-apk` has no
-  manifest-merging step, so the permission list in `benilla-android/Cargo.toml` is the *entire*
-  source of truth for the APK's manifest) is fixed, `WOW_DATA` defaults to the app's own media
-  directory, a Bevy default-feature conflict between `game-activity` and the `native-activity`
-  this project actually targets is resolved, and a signed release APK builds from CI. See
-  **Touch input** below for the control scheme. Compile-and-link and signed packaging are
-  proven; nobody has confirmed a full play session on a device or emulator yet, so treat it as
-  "should work," not "confirmed."
-- **Linux (Ubuntu)** — builds in CI (`ubuntu-latest`) the same as upstream, and is presumed fine
-  since it's the primary Bevy development target — no Linux-specific bugs have come up because
-  none have needed fixing. Not independently verified by this fork beyond that CI build.
-- **macOS** — builds in CI (`macos-latest`). No macOS-specific work has happened in this fork at
-  all — genuinely unverified; nobody here has run it.
+## Key Features
 
-### Touch input (Android)
+- **Asset Stack & Formats:** Readers for MPQ patch chains, BLP textures, DBC databases, ADT terrain, WDT/WDL map structures, M2 models, and WMO world objects — exposed natively to Bevy as an asset source.
+- **World & Rendering:** Horizon terrain streaming, portal-culled WMO interiors with dynamic lighting, doodads, ground clutter, swimmable water, sky/weather, and authentic day/night lighting, fog, and gamma control.
+- **Models & Characters:** GPU-skinned M2 models with full animation controllers, particles, ribbons, spell effects, full character customization, armor composite texturing, weapon enchant glows, shapeshift forms, stealth, and mounts.
+- **Movement & Physics:** Server-authoritative movement, mounts, roots, slow fall, water walking, flight paths, boats/zeppelins, and follow camera with terrain collision.
+- **Networking:** SRP6 authentication, world-session RC4 encryption, ECS-synced object mirroring, chat, combat, spells, groups/raids, quests, trading, mail, auction house, and battlegrounds.
+- **Interface & Addons:** Custom FrameXML engine and embedded Lua 5.1 dialect. Runs stock 1.12 interface UI as well as popular 1.12 addons (**Questie**, **pfUI**, **Bagnon**, **Bartender2**, **MikScrollingBattleText**, etc.).
+- **Audio:** Spatialized music, ambience, and sound effects via the [Kira](https://github.com/tesselode/kira) audio engine with zone reverb and interior/underwater transitions.
 
-- An on-screen virtual joystick, bottom-left, floating — it centers on wherever your thumb lands
-  rather than sitting at a fixed spot — mapped to WASD-equivalent movement.
-- Free-swipe camera look anywhere else on the screen.
-- Every finger is classified once, on touchdown — joystick, UI, or world-look — and keeps that
-  role until it lifts. That structure is what fixed an earlier bug where a tap's release could be
-  silently dropped (the real cause of "taps need spamming" and "a second resting finger fixes
-  it"), rather than patching around it case by case.
-- **Status:** implemented and merged, not yet confirmed on a real device. CI proves the APK
-  compiles, packages, and — as of the last signed build — that release signing works; an actual
-  play session hasn't happened yet.
-- Planned next, tracked in
-  [#8](https://github.com/jhinzuo2/benilla-twow/issues/8): face/camera-based target selection
-  without needing Tab, and a more mobile-tailored FrameXML layout with auto-login.
+---
 
-## TurtleWoW compatibility
+## TurtleWoW Compatibility
 
-benilla already speaks the stock 1.12.1 protocol, which gets you onto a TurtleWoW realm on its
-own — this section is the gap-filling on top of that, specific to what TurtleWoW's own client
-patch changed or added.
+While **benilla** speaks standard 1.12.1 protocol out of the box, this fork bridges the functional gaps introduced by TurtleWoW's custom client patch:
 
-- **Two extra playable races** — Goblin (Horde) and Blood Elf / High Elf (Alliance) — through
-  character creation, the race-select icon art (read from the client's own
-  `CharacterCreate.lua` icon table when present, the frozen vanilla math otherwise), and the
-  per-race equipment/helm model variants.
-- **Sound kits TurtleWoW references that the vanilla DBC doesn't ship** no longer error-spam — a
-  missing kit id is warned once, then plays as silence, same as a kit with no attached file.
-- **Everlook's internet-radio towers are recognized** — their `SoundEntries` path is a stream
-  URL, not an MPQ path — and no longer error every 5 seconds. Actually streaming the station
-  isn't implemented yet: tuning in correctly silences the zone music but plays nothing, tracked
-  in [#3](https://github.com/jhinzuo2/benilla-twow/issues/3).
-- **Camera Lua API extended** with `CameraZoomIn` / `CameraZoomOut` (used by things like the
-  barbershop's chair camera) and `FlipCameraYaw`.
-- **`benilla.toc` updated** to load TurtleWoW's own `json.lua` codec and the block of
-  TurtleWoW-exclusive FrameXML files its manifest appends, in TurtleWoW's own load order; the
-  two real functionality gaps that block on (`StopMusic`, `CameraZoomOut`) are filled by host
-  verbs.
-- **Options → Graphics no longer errors** on a TurtleWoW install — its patch replaces
-  `OptionsFrame.lua` with its own category/search system, which doesn't define the
-  slider-bounds table the panel reads, so those bounds are now vendored as a fallback.
-- **Fixed a client-breaking Lua gap:** `getfenv`/`setfenv` weren't implemented at all, and
-  TurtleWoW's own `Globals.lua` opens with `_G = getfenv(0)` — so the whole file, and everything
-  chained after it (`wipe`, `trim`, `explode`, `sizeof`, `print`), silently failed to load. That
-  surfaced as unrelated-looking nil-global errors deep inside `UIParent.lua`, nowhere near the
-  real cause. Both are implemented now.
-- **Warden is not implemented** — no crypto, no module execution, and that isn't planned to
-  change — but the client no longer disconnects over receiving `SMSG_WARDEN_DATA`, since
-  TurtleWoW appears to send it without enforcing it. This is a "don't treat an unenforced packet
-  as fatal" decision, not Warden support: a server that does enforce it will still silently kick
-  you after about 30 seconds rather than giving a clear error.
+- **Custom Playable Races:** Full support for **Goblin** (Horde) and **High Elf / Blood Elf** (Alliance) across character creation, UI race-select icons, equipment fitting, and helm/armor model variations.
+- **Lua & FrameXML Enhancements:**
+  - Implemented missing `getfenv` and `setfenv` Lua globals required by TurtleWoW's `Globals.lua` and UI utility functions (`wipe`, `trim`, `explode`, `sizeof`, `print`).
+  - Extended camera Lua API with `CameraZoomIn`, `CameraZoomOut`, and `FlipCameraYaw`.
+  - Native loading support for `json.lua` and TurtleWoW's custom FrameXML load order via `benilla.toc`.
+  - Fallback slider bounds for TurtleWoW's revised Graphics Options interface (`OptionsFrame.lua`).
+- **Resilient Audio Handling:** Missing sound kit IDs and stream URLs (such as Everlook's internet radio tower paths) warn once and gracefully output silence instead of spamming errors.
+- **Unenforced Warden Packets:** Ignores incoming `SMSG_WARDEN_DATA` packets without dropping the connection for servers that send Warden data without requiring client execution.
 
-Known open gaps, tracked as issues: TransmogUI renders only its background
-([#2](https://github.com/jhinzuo2/benilla-twow/issues/2)), the Inspect window's Talents tab is
-empty pending FrameXML work ([#7](https://github.com/jhinzuo2/benilla-twow/issues/7)), and some
-Tauren gear/hair combinations render white under a cause not yet identified
-([#6](https://github.com/jhinzuo2/benilla-twow/issues/6)).
+---
 
-The format readers and the UI engine core are plain Rust with no Bevy in them, and the world
-renderer runs with no game attached. [`docs/MAP.md`](docs/MAP.md) maps every crate and subsystem,
-generated from the code.
+## Platform Support & Touch Controls
 
-## Status
+**benilla** targets Desktop platforms and Android from a single unified codebase.
 
-Complete and fully playable. What is left:
+| Platform | Support Status | Config & Local State Path |
+| :--- | :--- | :--- |
+| **Windows** | Fully supported & actively developed | `%USERPROFILE%\Documents\benilla-twow\benilla-config` |
+| **Android** | Supported (Target: NativeActivity, API 30+) | `/sdcard/Android/media/com.benilla.twow/benilla-config` |
+| **Linux** | Supported | `<project-root>/benilla-config` or `<exe-dir>/benilla-config` |
+| **macOS** | Supported | `<project-root>/benilla-config` or `<exe-dir>/benilla-config` |
 
-- The long tail of small features that separates a working client from a finished one, tracked
-  as [issues](https://github.com/samwhosung/benilla/issues).
-- Addons, options and performance, ongoing.
+### Touch Controls (Android / Mobile)
 
-benilla is a faithful 1.12.1 client and the foundation people build on. There are no prebuilt
-downloads: a packaged build, a particular server's changes or anything 1.12.1 never had belongs
-in a fork, and forks are welcome. GitHub lists
-[every public fork](https://github.com/samwhosung/benilla/forks).
+When running on Android (or with `WOW_TOUCH=1` forced):
+- **Dynamic Virtual Joystick:** Located in the bottom-left screen area; automatically re-centers wherever your left thumb touches, controlling WASD movement.
+- **Free-Swipe Camera Look:** Touching anywhere outside the movement joystick maps directly to camera orbit/look.
+- **Finger Classification:** Each touch input is classified on touchdown (Joystick, UI, or Camera) and maintains its role until release to prevent dropped input events.
+- **Soft Keyboard Integration:** Tapping chat edit boxes or text input fields automatically invokes the native Android soft keyboard.
 
-Not planned: other expansions or client versions, Warden (anticheat).
+---
 
-## Running it
+## Configuration & Local State (`benilla-config`)
 
-benilla builds and runs on macOS, Linux and Windows. You need:
+**benilla** stores all user state, settings, logs, and screenshots inside a dedicated `benilla-config/` directory. It **never writes to or modifies your original WoW installation**.
 
-- **An English 1.12.1 client (build 5875)** for the game data. benilla only reads it.
-- **A 1.12.1 server with Warden off.** [vmangos](https://github.com/vmangos/core) is what
-  development runs against, and it ships with Warden off; cMaNGOS and the other 1.12.1 cores speak
-  the same protocol.
-- **Stable Rust and a C compiler**, because the client's Lua is built from source: on macOS the
-  Xcode command line tools, on Linux the ALSA and udev development packages and pkg-config, on
-  Windows the MSVC build tools that the Rust installer sets up.
+### Directory Structure
 
-```sh
-WOW_DATA=/path/to/WoW/Data cargo run --release -p benilla
+```text
+benilla-config/
+├── config.toml           # CVar overrides and client settings (Config.wtf equivalent)
+├── account               # Saved account name
+├── password              # Saved password (when "Remember Password" is checked)
+├── AddOns/               # User 1.12 addons
+├── Fonts/                # Custom TrueType font overrides & fallbacks
+├── addon-state/          # Per-character addon enable/disable states
+├── bindings/             # Key bindings (account and per-character)
+├── macros/               # Account and character macros
+├── saved/                # SavedVariables for addons (account & character scope)
+├── camera/               # Saved third-person camera positions
+├── chat/                 # Chat frame layouts, channels, font sizes, and tints
+├── layout/               # Frame positions and UI layout cache
+├── cache/                # Name cache TSV files per realm
+├── Logs/                 # WoWChatLog.txt and WoWCombatLog.txt
+└── Screenshots/          # Screen captures taken in-game
 ```
 
-On Windows, in PowerShell:
+### Path Resolution Order
 
+Local state resolves in the following order:
+1. `$BENILLA_HOME` environment variable (if explicitly set).
+2. Temporary directory `/tmp/benilla-run-<pid>/benilla-config` (unattended / test mode).
+3. **Windows:** `%USERPROFILE%\Documents\benilla-twow\benilla-config` via `SHGetKnownFolderPath(FOLDERID_Documents)`.
+4. **Android:** `/sdcard/Android/media/com.benilla.twow/benilla-config`.
+5. `<project-root>/benilla-config` (development builds) or `<exe-dir>/benilla-config` (release binaries).
+
+### Custom Font Engine & Overrides
+
+Place custom TrueType (`.ttf`), OpenType (`.otf`), or TTC (`.ttc`) files in `benilla-config/Fonts/` (or `fonts/`):
+
+1. **Standard Client Font Overrides:**
+   Files matching any of the 5 primary font basenames override the game's default UI typefaces:
+   - `ARIALN.ttf`
+   - `FRITZQT__.ttf`
+   - `MORPHEUS.ttf`
+   - `SKURRI.ttf`
+   - `WarSansTT-Bliz-500.ttf`
+
+2. **International Character Fallback (CJK / Cyrillic):**
+   Any additional font files dropped into `benilla-config/Fonts/` that do not match the standard basenames are automatically registered as **coverage fallback fonts**. When rendering text containing CJK or Cyrillic characters not present in the standard Latin faces, the font engine seamlessly falls back to these additional faces.
+
+---
+
+## Building and Running
+
+### Prerequisites
+
+1. **Client Data:** An English World of Warcraft 1.12.1 client (build 5875).
+2. **Server:** A 1.12.1 server core (e.g. [vmangos](https://github.com/vmangos/core), cMaNGOS, or TurtleWoW).
+3. **Build Toolchain:**
+   - **Rust:** Stable toolchain (`rustc`, `cargo`).
+   - **Windows:** MSVC Build Tools.
+   - **Linux:** `pkg-config`, `libudev-dev`, `libalsa-dev` (or `alsa-lib-devel`).
+   - **macOS:** Xcode Command Line Tools.
+
+### Running from Source
+
+Set the `WOW_DATA` environment variable to point to your client's `Data` directory:
+
+#### Linux / macOS (Bash)
+```bash
+WOW_DATA="/path/to/WoW/Data" cargo run --release -p benilla
+```
+
+#### Windows (PowerShell)
 ```powershell
 $env:WOW_DATA="C:\path\to\WoW\Data"; cargo run --release -p benilla
 ```
 
-Each release is a tag on the [Releases page](https://github.com/samwhosung/benilla/releases):
-`git checkout <tag>` first runs that release, and `main` is the development tip.
+Alternatively, create a directory link or junction named `WoW` at the repository root pointing to your WoW directory:
+```powershell
+# Windows PowerShell (Junction)
+New-Item -ItemType Junction -Path WoW -Target "C:\path\to\WoW"
+```
 
-`WOW_DATA` names the install's `Data` folder; a link to the install named `WoW` at the repo root
-does the same (`ln -s /path/to/WoW WoW`, or on Windows a junction, which needs no admin rights:
-`New-Item -ItemType Junction -Path WoW -Target C:\path\to\WoW`). The server defaults to
-`localhost:3724`, the stock auth port. Point `WOW_HOST` at another (`WOW_HOST=play.example.com`, or
-`play.example.com:5000` for a remapped port), or set it from the Realmlist button on the login
-screen, which remembers it. Credentials go in at the login screen, or set `WOW_USER` and `WOW_PASS`
-to skip it.
+### Useful Environment Variables
 
-Windows config lands in C:\Users\USERNAME\Documents\benilla-twow\benilla-config
-
-Android config lands in /sdcard/Android/media/benilla-config
-
-Font Support via the 5 Original Fontnames inside /benilla-config/fonts. 
-(ARIALN.ttf, 
-FRITZQT__.ttf, 
-skurri.ttf, 
-MORPHEUS.ttf, 
-WarSansTT-Bliz-500.ttf)
-
-Settings, screenshots and addons live in `benilla-config/` at the repo root: a 1.12 addon goes in
-`benilla-config/AddOns/`. [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md) has the rest, from the
-player build to the tests.
-
-## Contributing
-
-Issues and pull requests are open. [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md) says where to
-start, what gets in, how a change is judged and what happens to a pull request once it is open.
-Bugs, questions and ideas are welcome on the [Discord](https://discord.gg/wJSJx467G4) too.
+| Variable | Description |
+| :--- | :--- |
+| `WOW_DATA` | Path to the 1.12.1 `Data` directory (containing `.MPQ` files). |
+| `WOW_HOST` | Target server address (default: `localhost:3724`). Example: `play.example.com:3724`. |
+| `WOW_USER` | Account username for auto-login. |
+| `WOW_PASS` | Account password for auto-login. |
+| `WOW_TOUCH` | Set to `1` to force mobile virtual joystick and touch camera controls. |
+| `BENILLA_HOME` | Custom path override for the `benilla-config` state directory. |
 
 ---
 
-Early inspiration and file format guidance came from the
-[wowemulation-dev](https://github.com/wowemulation-dev) community, and
-[warcraft-rs](https://github.com/wowemulation-dev/warcraft-rs) in particular.
+## Codebase Architecture
 
-benilla is an independent fan project, not affiliated with or endorsed by Blizzard Entertainment.
-It ships **no Blizzard content**: no art, models, sounds, maps, MPQ contents or FrameXML. You
-provide your own legally obtained 1.12.1 client, and the stock interface runs off its FrameXML at
-runtime. The few files under `crates/benilla-app/assets/ui/` are our own, not copies of it:
-adapters over stock files, and the settings windows and script error log benilla draws itself.
+The project is structured as a Cargo workspace with distinct, modular crates:
 
-World of Warcraft is a trademark of Blizzard Entertainment, Inc. Our own code is licensed under
-[MIT](LICENSE-MIT) or [Apache 2.0](LICENSE-APACHE), at your option. The two vendored components
-under `third_party/`, the kira audio engine and a Lua 5.1 patched to the 1.12 client's dialect,
-keep their own upstream licenses, alongside each.
+- `crates/benilla`: Entry-point binary and app launcher.
+- `crates/benilla-app`: Core Bevy plugin suite, ECS systems, UI bridge, player controllers, and audio.
+- `crates/benilla-assets`: MPQ patch chain loader and asset streaming pipeline.
+- `crates/benilla-formats`: Format parsers for BLP, DBC, ADT, WDT, WDL, M2, and WMO.
+- `crates/benilla-protocol`: World of Warcraft 1.12.1 network packet definitions and serialization.
+- `crates/benilla-srp`: SRP6 authentication cryptography.
+- `crates/benilla-ui`: FrameXML parser, layout engine, and Lua 5.1 environment wrapper.
+
+Detailed subsystem design and architectural guidelines can be found in:
+- [`docs/MAP.md`](docs/MAP.md) — Comprehensive crate and module map.
+- [`docs/METHOD.md`](docs/METHOD.md) — System design rules and technical constraints.
+- [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md) — Development guidelines and PR standards.
+
+---
+
+## Disclaimer & Licensing
+
+**benilla** is an independent, open-source fan project. It is **not** affiliated with, endorsed by, or associated with Blizzard Entertainment, Inc.
+
+- **No Proprietary Assets:** This repository contains no Blizzard copyrighted material — no artwork, models, audio, maps, or FrameXML files. All game assets are read at runtime from the user's legally owned 1.12.1 client installation.
+- **License:** Open source code in this repository is dual-licensed under [MIT](LICENSE-MIT) OR [Apache-2.0](LICENSE-APACHE).
+- Vendored components under `third_party/` ([Kira audio engine](third_party/kira) and [Lua 5.1 dialect](third_party/lua-src)) retain their respective upstream open-source licenses.

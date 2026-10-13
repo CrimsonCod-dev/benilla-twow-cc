@@ -158,6 +158,7 @@ pub(crate) struct TouchPointer {
 /// a mob without a mouse, and it is why look-drag and world-click can share one finger — the same
 /// arbitration the desktop client does between "right-drag to turn" and "right-click to interact".
 #[derive(Message, Clone, Copy, Debug)]
+#[allow(dead_code)]
 pub(crate) struct TouchWorldTap {
     /// Logical px, y-down.
     pub pos: Vec2,
@@ -304,23 +305,21 @@ fn topmost_ui_node(
         if vis.is_some_and(|v| !v.get()) || disabled.is_some_and(|d| d.0) {
             continue;
         }
-        if true {
-            if crate::glue::node_hit_test(node, transform, scale, pos) {
-                let z = z_index.map_or(0, |z| z.0);
-                let depth = parents.iter_ancestors(entity).count();
-                match best {
-                    None => best = Some((entity, z, depth)),
-                    Some((best_entity, best_z, best_depth)) => {
-                        let is_better = if z != best_z {
-                            z > best_z
-                        } else if depth != best_depth {
-                            depth > best_depth
-                        } else {
-                            entity.index() > best_entity.index()
-                        };
-                        if is_better {
-                            best = Some((entity, z, depth));
-                        }
+        if crate::glue::node_hit_test(node, transform, scale, pos) {
+            let z = z_index.map_or(0, |z| z.0);
+            let depth = parents.iter_ancestors(entity).count();
+            match best {
+                None => best = Some((entity, z, depth)),
+                Some((best_entity, best_z, best_depth)) => {
+                    let is_better = if z != best_z {
+                        z > best_z
+                    } else if depth != best_depth {
+                        depth > best_depth
+                    } else {
+                        entity.index() > best_entity.index()
+                    };
+                    if is_better {
+                        best = Some((entity, z, depth));
                     }
                 }
             }
@@ -699,8 +698,8 @@ mod tests {
                 Node::default(),
                 Button,
                 Interaction::None,
-                ComputedNode::from_size(Vec2::new(200.0, 100.0)),
-                UiGlobalTransform::from(Transform::from_translation(Vec3::new(500.0, 400.0, 0.0))),
+                ComputedNode::default(),
+                UiGlobalTransform::from(bevy::math::Affine2::from_translation(Vec2::new(500.0, 400.0))),
                 InheritedVisibility::VISIBLE,
             ))
             .id();
@@ -779,8 +778,8 @@ mod tests {
                 Node::default(),
                 Button,
                 Interaction::None,
-                ComputedNode::from_size(Vec2::new(200.0, 100.0)),
-                UiGlobalTransform::from(Transform::from_translation(Vec3::new(500.0, 400.0, 0.0))),
+                ComputedNode::default(),
+                UiGlobalTransform::from(bevy::math::Affine2::from_translation(Vec2::new(500.0, 400.0))),
                 InheritedVisibility::VISIBLE,
                 GlobalZIndex(0),
             ))
@@ -792,8 +791,8 @@ mod tests {
                 Node::default(),
                 Button,
                 Interaction::None,
-                ComputedNode::from_size(Vec2::new(200.0, 100.0)),
-                UiGlobalTransform::from(Transform::from_translation(Vec3::new(500.0, 400.0, 0.0))),
+                ComputedNode::default(),
+                UiGlobalTransform::from(bevy::math::Affine2::from_translation(Vec2::new(500.0, 400.0))),
                 InheritedVisibility::VISIBLE,
                 GlobalZIndex(100),
             ))
@@ -805,8 +804,8 @@ mod tests {
                 Node::default(),
                 Button,
                 Interaction::None,
-                ComputedNode::from_size(Vec2::new(200.0, 100.0)),
-                UiGlobalTransform::from(Transform::from_translation(Vec3::new(500.0, 400.0, 0.0))),
+                ComputedNode::default(),
+                UiGlobalTransform::from(bevy::math::Affine2::from_translation(Vec2::new(500.0, 400.0))),
                 InheritedVisibility::HIDDEN,
                 GlobalZIndex(200),
             ))
@@ -874,8 +873,8 @@ mod tests {
                 Node::default(),
                 Button,
                 Interaction::None,
-                ComputedNode::from_size(Vec2::new(100.0, 100.0)),
-                UiGlobalTransform::from(Transform::from_translation(Vec3::new(400.0, 400.0, 0.0))),
+                ComputedNode::default(),
+                UiGlobalTransform::from(bevy::math::Affine2::from_translation(Vec2::new(400.0, 400.0))),
                 InheritedVisibility::VISIBLE,
             ))
             .id();
@@ -886,8 +885,8 @@ mod tests {
                 Node::default(),
                 Button,
                 Interaction::None,
-                ComputedNode::from_size(Vec2::new(100.0, 100.0)),
-                UiGlobalTransform::from(Transform::from_translation(Vec3::new(600.0, 400.0, 0.0))),
+                ComputedNode::default(),
+                UiGlobalTransform::from(bevy::math::Affine2::from_translation(Vec2::new(600.0, 400.0))),
                 InheritedVisibility::VISIBLE,
             ))
             .id();

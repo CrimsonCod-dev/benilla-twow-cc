@@ -466,6 +466,7 @@ fn apply_music_suppression(zone: &mut ZoneAudio, suppressed: bool, now: f64) {
 /// (the chain's only caller) pairs it with `SetCVar("EnableMusic", 0)`, whose category-amp 0
 /// makes the resumed cycle inaudible until the player unmutes. Drained from the UI-sound drain
 /// in `super::ui`.
+#[allow(dead_code)]
 pub(super) fn cut_music(zone: &mut ZoneAudio) {
     if let Some(mut h) = zone.music.take() {
         h.stop(mixer::fade(0));

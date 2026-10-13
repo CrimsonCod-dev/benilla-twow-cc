@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Triggers the Android soft keyboard when a text field opens, and dismisses it when the field
 //! closes — issue's touch-enhancement ask ("automatically trigger the native Android keyboard
 //! whenever a text input field opens (such as login, password, in-game chat, or the macro box)").

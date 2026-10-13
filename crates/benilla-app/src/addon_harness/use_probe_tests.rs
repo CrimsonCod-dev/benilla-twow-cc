@@ -53,6 +53,7 @@ impl Drop for Fixtures {
 /// `std::os::unix::fs::symlink` for directories, so the oracle test copies instead of linking
 /// there. (The corpus entries are addon folders, not single files, so `std::fs::copy` alone is
 /// not enough.)
+#[allow(dead_code)]
 pub(super) fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(dst)?;
     for entry in std::fs::read_dir(src)? {

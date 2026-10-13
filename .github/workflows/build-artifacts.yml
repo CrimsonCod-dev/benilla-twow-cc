@@ -168,10 +168,10 @@ jobs:
           CARGO_APK_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}
         run: |
           if [ "${{ github.event_name }}" = "release" ] || [ "${{ inputs.build_type }}" = "ship" ] || [ "${{ inputs.build_type }}" = "both" ]; then
-            cargo apk build --release -p benilla-android
+            cargo apk build --profile ship -p benilla-android
           fi
           if [ "${{ inputs.build_type }}" = "dev" ] || [ "${{ inputs.build_type }}" = "both" ]; then
-            cargo apk build -p benilla-android
+            cargo apk build -p benilla-android --features benilla-app/dev
           fi
 
       - name: Upload Android build artifact
@@ -180,6 +180,7 @@ jobs:
         with:
           name: benilla-android-arm64-${{ env.SHORT_SHA }}
           path: |
+            target/ship/apk/*.apk
             target/release/apk/*.apk
             target/debug/apk/*.apk
           retention-days: 7

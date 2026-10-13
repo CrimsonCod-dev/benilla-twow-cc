@@ -1193,7 +1193,7 @@ pub(crate) fn save_account(name: &str) {
 fn load_saved_password_from(path: &std::path::Path) -> String {
     std::fs::read_to_string(path)
         .map(|s| {
-            s.trim_end_matches(|c: char| c == '\r' || c == '\n')
+            s.trim_end_matches(['\r', '\n'])
                 .to_string()
         })
         .unwrap_or_default()

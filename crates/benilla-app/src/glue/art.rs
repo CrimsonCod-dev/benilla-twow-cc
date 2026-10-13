@@ -528,7 +528,8 @@ impl GlueArt {
 
     /// A race icon's texcoords for a (race, sex) — the client's own authored rect when its
     /// `CharacterCreate.lua` parsed, the frozen vanilla 4-column math otherwise.
-    pub(crate) fn race_tc(&self, race: u8, sex: u8) -> Option<[f32; 4]> {
+    #[allow(dead_code)]
+pub(crate) fn race_tc(&self, race: u8, sex: u8) -> Option<[f32; 4]> {
         if let Some([male, female]) = self.race_cells.as_ref().and_then(|c| c.get(&race)) {
             return Some(if sex == 0 { *male } else { *female });
         }
@@ -646,6 +647,7 @@ fn race_cell(race: u8) -> Option<(f32, f32)> {
     })
 }
 
+#[allow(dead_code)]
 pub(crate) fn race_tc(race: u8, sex: u8) -> Option<[f32; 4]> {
     let (c, r) = race_cell(race)?;
     let r = r + if sex == 1 { 2.0 } else { 0.0 };

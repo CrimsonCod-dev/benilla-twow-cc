@@ -698,8 +698,14 @@ mod tests {
                 Node::default(),
                 Button,
                 Interaction::None,
-                ComputedNode::default(),
-                UiGlobalTransform::from(bevy::math::Affine2::from_translation(Vec2::new(500.0, 400.0))),
+                ComputedNode {
+                    unrounded_size: Vec2::new(200.0, 100.0),
+                    size: Vec2::new(200.0, 100.0),
+                    ..default()
+                },
+                UiGlobalTransform::from(bevy::math::Affine2::from_translation(Vec2::new(
+                    500.0, 400.0,
+                ))),
                 InheritedVisibility::VISIBLE,
             ))
             .id();
@@ -778,8 +784,14 @@ mod tests {
                 Node::default(),
                 Button,
                 Interaction::None,
-                ComputedNode::default(),
-                UiGlobalTransform::from(bevy::math::Affine2::from_translation(Vec2::new(500.0, 400.0))),
+                ComputedNode {
+                    unrounded_size: Vec2::new(200.0, 100.0),
+                    size: Vec2::new(200.0, 100.0),
+                    ..default()
+                },
+                UiGlobalTransform::from(bevy::math::Affine2::from_translation(Vec2::new(
+                    500.0, 400.0,
+                ))),
                 InheritedVisibility::VISIBLE,
                 GlobalZIndex(0),
             ))
@@ -791,8 +803,14 @@ mod tests {
                 Node::default(),
                 Button,
                 Interaction::None,
-                ComputedNode::default(),
-                UiGlobalTransform::from(bevy::math::Affine2::from_translation(Vec2::new(500.0, 400.0))),
+                ComputedNode {
+                    unrounded_size: Vec2::new(200.0, 100.0),
+                    size: Vec2::new(200.0, 100.0),
+                    ..default()
+                },
+                UiGlobalTransform::from(bevy::math::Affine2::from_translation(Vec2::new(
+                    500.0, 400.0,
+                ))),
                 InheritedVisibility::VISIBLE,
                 GlobalZIndex(100),
             ))
@@ -804,8 +822,14 @@ mod tests {
                 Node::default(),
                 Button,
                 Interaction::None,
-                ComputedNode::default(),
-                UiGlobalTransform::from(bevy::math::Affine2::from_translation(Vec2::new(500.0, 400.0))),
+                ComputedNode {
+                    unrounded_size: Vec2::new(200.0, 100.0),
+                    size: Vec2::new(200.0, 100.0),
+                    ..default()
+                },
+                UiGlobalTransform::from(bevy::math::Affine2::from_translation(Vec2::new(
+                    500.0, 400.0,
+                ))),
                 InheritedVisibility::HIDDEN,
                 GlobalZIndex(200),
             ))
@@ -873,8 +897,14 @@ mod tests {
                 Node::default(),
                 Button,
                 Interaction::None,
-                ComputedNode::default(),
-                UiGlobalTransform::from(bevy::math::Affine2::from_translation(Vec2::new(400.0, 400.0))),
+                ComputedNode {
+                    unrounded_size: Vec2::new(100.0, 100.0),
+                    size: Vec2::new(100.0, 100.0),
+                    ..default()
+                },
+                UiGlobalTransform::from(bevy::math::Affine2::from_translation(Vec2::new(
+                    400.0, 400.0,
+                ))),
                 InheritedVisibility::VISIBLE,
             ))
             .id();
@@ -885,8 +915,14 @@ mod tests {
                 Node::default(),
                 Button,
                 Interaction::None,
-                ComputedNode::default(),
-                UiGlobalTransform::from(bevy::math::Affine2::from_translation(Vec2::new(600.0, 400.0))),
+                ComputedNode {
+                    unrounded_size: Vec2::new(100.0, 100.0),
+                    size: Vec2::new(100.0, 100.0),
+                    ..default()
+                },
+                UiGlobalTransform::from(bevy::math::Affine2::from_translation(Vec2::new(
+                    600.0, 400.0,
+                ))),
                 InheritedVisibility::VISIBLE,
             ))
             .id();

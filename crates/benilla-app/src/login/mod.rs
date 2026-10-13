@@ -1192,10 +1192,7 @@ pub(crate) fn save_account(name: &str) {
 /// stripped, never other whitespace: a password is bytes the player chose.
 fn load_saved_password_from(path: &std::path::Path) -> String {
     std::fs::read_to_string(path)
-        .map(|s| {
-            s.trim_end_matches(['\r', '\n'])
-                .to_string()
-        })
+        .map(|s| s.trim_end_matches(['\r', '\n']).to_string())
         .unwrap_or_default()
 }
 

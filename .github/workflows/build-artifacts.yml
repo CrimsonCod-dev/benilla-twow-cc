@@ -1,4 +1,4 @@
-# On-demand and Release artifact build workflow for Windows and Android.
+# On-demand and Release artifact build workflow for Windows, Android, Linux, and macOS.
 # Artifacts are produced ONLY when manually triggered (workflow_dispatch)
 # or when a GitHub Release is published.
 name: Build Artifacts
@@ -15,7 +15,10 @@ on:
         options:
           - windows
           - android
+          - linux
+          - macos
           - both
+          - all
         default: windows
       build_type:
         description: "Build profile (ship = optimized player build, dev = debug/tools build, both = build both)"
@@ -42,7 +45,7 @@ concurrency:
 jobs:
   windows:
     name: build (windows)
-    if: github.event_name == 'release' || inputs.platform == 'windows' || inputs.platform == 'both'
+    if: github.event_name == 'release' || inputs.platform == 'windows' || inputs.platform == 'both' || inputs.platform == 'all'
     runs-on: windows-latest
     steps:
       - name: Check out
@@ -89,7 +92,7 @@ jobs:
 
   android:
     name: build (android)
-    if: github.event_name == 'release' || inputs.platform == 'android' || inputs.platform == 'both'
+    if: github.event_name == 'release' || inputs.platform == 'android' || inputs.platform == 'both' || inputs.platform == 'all'
     runs-on: ubuntu-latest
     steps:
       - name: Check out
@@ -153,8 +156,8 @@ jobs:
             echo "HAS_KEYSTORE=true" >> "$GITHUB_ENV"
           else
             echo "HAS_KEYSTORE=false" >> "$GITHUB_ENV"
-            if [ "${{ github.event_name }}" = "release" ] || [ "${{ inputs.build_type }}" = "ship" ]; then
-              echo "ERROR: Release build requested, but ANDROID_RELEASE_KEYSTORE secret is missing!"
+            if [ "${{ github.event_name }}" = "release" ] || [ "${{ inputs.build_type }}" = "ship" ] || [ "${{ inputs.build_type }}" = "both" ]; then
+              echo "ERROR: Release or ship build requested, but ANDROID_RELEASE_KEYSTORE secret is missing!"
               return 1 2>/dev/null || exit 1
             fi
             echo "ANDROID_RELEASE_KEYSTORE secret not set -- proceeding with debug APK for manual dev build"
@@ -186,9 +189,107 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
+  linux:
+    name: build (linux)
+    if: github.event_name == 'release' || inputs.platform == 'linux' || inputs.platform == 'all'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set Short SHA
+        run: echo "SHORT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y libasound2-dev libudev-dev pkg-config
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: linux-${{ inputs.build_type || 'ship' }}
+          cache-on-failure: true
+
+      - name: cargo build --profile ship -p benilla
+        if: github.event_name == 'release' || inputs.build_type == 'ship' || inputs.build_type == 'both'
+        run: cargo build --profile ship --locked --no-default-features -p benilla
+
+      - name: Upload ship build artifact
+        if: (github.event_name == 'release' || inputs.upload_artifact == true) && (github.event_name == 'release' || inputs.build_type == 'ship' || inputs.build_type == 'both')
+        uses: actions/upload-artifact@v4
+        with:
+          name: benilla-linux-x64-ship-${{ env.SHORT_SHA }}
+          path: target/ship/benilla
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: cargo build -p benilla (dev profile)
+        if: inputs.build_type == 'dev' || inputs.build_type == 'both'
+        run: cargo build --release --locked -p benilla
+
+      - name: Upload dev build artifact
+        if: inputs.upload_artifact == true && (inputs.build_type == 'dev' || inputs.build_type == 'both')
+        uses: actions/upload-artifact@v4
+        with:
+          name: benilla-linux-x64-dev-${{ env.SHORT_SHA }}
+          path: target/release/benilla
+          retention-days: 7
+          if-no-files-found: error
+
+  macos:
+    name: build (macos)
+    if: github.event_name == 'release' || inputs.platform == 'macos' || inputs.platform == 'all'
+    runs-on: macos-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set Short SHA
+        shell: bash
+        run: echo "SHORT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: macos-${{ inputs.build_type || 'ship' }}
+          cache-on-failure: true
+
+      - name: cargo build --profile ship -p benilla
+        if: github.event_name == 'release' || inputs.build_type == 'ship' || inputs.build_type == 'both'
+        run: cargo build --profile ship --locked --no-default-features -p benilla
+
+      - name: Upload ship build artifact
+        if: (github.event_name == 'release' || inputs.upload_artifact == true) && (github.event_name == 'release' || inputs.build_type == 'ship' || inputs.build_type == 'both')
+        uses: actions/upload-artifact@v4
+        with:
+          name: benilla-macos-x64-ship-${{ env.SHORT_SHA }}
+          path: target/ship/benilla
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: cargo build -p benilla (dev profile)
+        if: inputs.build_type == 'dev' || inputs.build_type == 'both'
+        run: cargo build --release --locked -p benilla
+
+      - name: Upload dev build artifact
+        if: inputs.upload_artifact == true && (inputs.build_type == 'dev' || inputs.build_type == 'both')
+        uses: actions/upload-artifact@v4
+        with:
+          name: benilla-macos-x64-dev-${{ env.SHORT_SHA }}
+          path: target/release/benilla
+          retention-days: 7
+          if-no-files-found: error
+
   release-publish:
     name: publish release assets
-    needs: [windows, android]
+    needs: [windows, android, linux, macos]
     if: github.event_name == 'release' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-latest
     permissions:
@@ -206,7 +307,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          for file in $(find artifacts -type f \( -name "*.exe" -o -name "*.apk" \)); do
+          for file in $(find artifacts -type f \( -name "benilla*" -o -name "*.exe" -o -name "*.apk" \)); do
             if [ ! -s "$file" ]; then
               echo "ERROR: Artifact file $file is empty or missing!"
               return 1 2>/dev/null || exit 1

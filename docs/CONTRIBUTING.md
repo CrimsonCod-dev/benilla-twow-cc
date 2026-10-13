@@ -129,6 +129,46 @@ out of scope is closed with the reason.
   checks, so it needs a display. `WOW_STOCK_UI=1` boots a dev build on the stock interface
   alone, without benilla's layer. Work on a branch.
 
+
+## CI/CD and Building Artifacts
+
+To conserve GitHub Actions minutes, heavy platform builds (Windows and Android) are decoupled from everyday pull requests and commits.
+
+### Lightweight CI Checks
+Every pull request and commit pushed to `main` automatically runs lightweight checks (`.github/workflows/ci.yml`) on an `ubuntu-latest` runner:
+- `cargo fmt --all -- --check`
+- `cargo clippy --workspace --all-targets -- -D warnings`
+- `cargo test --workspace`
+- `scripts/doc-links.py`
+- `scripts/pass-span-lint.py`
+- `cargo test -p benilla-formats -p benilla-app --no-default-features --lib`
+
+Heavy Windows and Android builds do **not** run automatically on PRs or commits.
+
+### Manual Artifact Builds
+To trigger a build for Windows or Android on demand:
+1. Go to the **Actions** tab in the repository.
+2. Select the **Build Artifacts** workflow on the left.
+3. Click **Run workflow** and choose the desired parameters:
+   - **platform**: `windows` (default), `android`, or `both`.
+   - **build_type**: `ship` (optimized player build, default), `dev` (debug/tools build), or `both`.
+   - **upload_artifact**: `true` (default).
+
+When only `windows` is selected, the Android job is skipped. When `android` is selected, the Windows job is skipped.
+
+### Artifact Naming & Retention
+Build artifacts are uploaded to GitHub Actions Artifacts:
+- Windows: `benilla-windows-x64-ship-<short-sha>` / `benilla-windows-x64-dev-<short-sha>`
+- Android: `benilla-android-arm64-<short-sha>`
+
+Manual build artifacts are retained for **7 days**.
+
+### GitHub Releases
+Publishing a GitHub Release automatically triggers the `Build Artifacts` workflow for all release targets (`platform=both`, `build_type=ship`) and attaches the resulting executables and APKs directly to the release.
+
+### Regenerating Cargo.lock
+If adding workspace dependencies from an environment without a local Rust toolchain, run the **Regenerate Cargo.lock** workflow manually from the Actions tab.
+
 ## Reporting a bug
 
 Open an issue: what you did, what you saw and what 1.12.1 does instead, with the `benilla build`

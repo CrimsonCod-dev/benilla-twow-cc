@@ -33,7 +33,7 @@ on:
         default: true
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: build-artifacts-${{ github.ref }}
@@ -74,7 +74,7 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-      - name: cargo build --release -p benilla (dev profile)
+      - name: cargo build -p benilla (dev profile)
         if: inputs.build_type == 'dev' || inputs.build_type == 'both'
         run: cargo build --release --locked -p benilla
 
@@ -140,8 +140,8 @@ jobs:
           ndk-version: r26d
           add-to-path: true
 
-      - name: Install cargo-apk
-        run: cargo install cargo-apk --locked
+      - name: Install cargo-apk (pinned v0.10.0)
+        run: cargo install cargo-apk --version 0.10.0 --locked
 
       - name: Decode release keystore
         env:
@@ -152,8 +152,12 @@ jobs:
             echo "ANDROID_RELEASE_KEYSTORE_PATH=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
             echo "HAS_KEYSTORE=true" >> "$GITHUB_ENV"
           else
-            echo "ANDROID_RELEASE_KEYSTORE secret is not set -- building debug APK"
             echo "HAS_KEYSTORE=false" >> "$GITHUB_ENV"
+            if [ "${{ github.event_name }}" = "release" ] || [ "${{ inputs.build_type }}" = "ship" ]; then
+              echo "ERROR: Release build requested, but ANDROID_RELEASE_KEYSTORE secret is missing!"
+              return 1 2>/dev/null || exit 1
+            fi
+            echo "ANDROID_RELEASE_KEYSTORE secret not set -- proceeding with debug APK for manual dev build"
           fi
 
       - name: Build Android APK
@@ -163,11 +167,10 @@ jobs:
           CARGO_APK_RELEASE_KEYSTORE: ${{ env.ANDROID_RELEASE_KEYSTORE_PATH }}
           CARGO_APK_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}
         run: |
-          if [ "${{ inputs.build_type }}" = "dev" ]; then
-            cargo apk build -p benilla-android
-          elif [ "$HAS_KEYSTORE" = "true" ]; then
+          if [ "${{ github.event_name }}" = "release" ] || [ "${{ inputs.build_type }}" = "ship" ] || [ "${{ inputs.build_type }}" = "both" ]; then
             cargo apk build --release -p benilla-android
-          else
+          fi
+          if [ "${{ inputs.build_type }}" = "dev" ] || [ "${{ inputs.build_type }}" = "both" ]; then
             cargo apk build -p benilla-android
           fi
 
@@ -185,8 +188,10 @@ jobs:
   release-publish:
     name: publish release assets
     needs: [windows, android]
-    if: github.event_name == 'release'
+    if: github.event_name == 'release' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Check out
         uses: actions/checkout@v4
@@ -200,4 +205,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          find artifacts -type f \( -name "*.exe" -o -name "*.apk" \) -exec gh release upload "${{ github.event.release.tag_name }}" {} --clobber \;
+          for file in $(find artifacts -type f \( -name "*.exe" -o -name "*.apk" \)); do
+            if [ ! -s "$file" ]; then
+              echo "ERROR: Artifact file $file is empty or missing!"
+              return 1 2>/dev/null || exit 1
+            fi
+            echo "Uploading $file to release ${{ github.event.release.tag_name }}..."
+            gh release upload "${{ github.event.release.tag_name }}" "$file" --clobber
+          done

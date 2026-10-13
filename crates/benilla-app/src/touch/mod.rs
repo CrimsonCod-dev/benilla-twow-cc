@@ -45,6 +45,7 @@
 //! only consulted by the UI pass when the window reports no cursor of its own. A real mouse takes
 //! the same path it always did.
 
+use bevy::camera::visibility::InheritedVisibility;
 use bevy::input::touch::Touches;
 use bevy::prelude::*;
 use bevy::ui::FocusPolicy;
@@ -253,9 +254,14 @@ impl Plugin for TouchPlugin {
             // `Update` too, ordered behind `TouchInputSet`.
             // Before the UI feed, which reads `TouchPointer`, and so before the world input that
             // runs after the UI pass.
-            .configure_sets(Update, TouchInputSet.before(crate::ui_script::UiInput))
+            .configure_sets(
+                PreUpdate,
+                TouchInputSet
+                    .after(bevy::input::InputSystems)
+                    .before(bevy::ui::UiSystems::Focus),
+            )
             .add_systems(
-                Update,
+                PreUpdate,
                 (classify_touches, drive_touch_ui_interactions)
                     .chain()
                     .in_set(TouchInputSet),
@@ -270,15 +276,42 @@ type UiNodeQuery<'w, 's> = Query<
     'w,
     's,
     (
+        Entity,
         &'static ComputedNode,
         &'static UiGlobalTransform,
         Option<&'static FocusPolicy>,
         Option<&'static crate::glue::widgets::GlueDisabled>,
-        Option<&'static Visibility>,
+        Option<&'static InheritedVisibility>,
         Option<&'static Interaction>,
+        Option<&'static GlobalZIndex>,
     ),
     With<Node>,
 >;
+
+fn topmost_ui_node(ui_nodes: &UiNodeQuery, scale: f32, pos: Vec2) -> Option<Entity> {
+    let mut best: Option<(Entity, i32)> = None;
+
+    for (entity, node, transform, policy, disabled, vis, interaction, z_index) in ui_nodes {
+        if vis.is_some_and(|v| !v.get()) || disabled.is_some_and(|d| d.0) {
+            continue;
+        }
+        if interaction.is_some() || policy.is_some_and(|p| *p == FocusPolicy::Block) {
+            if crate::glue::node_hit_test(node, transform, scale, pos) {
+                let z = z_index.map_or(0, |z| z.0);
+                match best {
+                    None => best = Some((entity, z)),
+                    Some((best_entity, best_z)) => {
+                        if z > best_z || (z == best_z && entity.index() > best_entity.index()) {
+                            best = Some((entity, z));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    best.map(|(e, _)| e)
+}
 
 fn classify_touches(
     touches: Res<Touches>,
@@ -314,10 +347,6 @@ fn classify_touches(
     let (win_w, win_h) = (window.width(), window.height());
 
     // ── 1. Claim newly-pressed fingers ──────────────────────────────────────────────────────
-    //
-    // Classification happens here and nowhere else. Note this reads `iter_just_pressed()`, which
-    // is authoritative for "came down this frame" regardless of how many fingers are already
-    // resting — the coin-flip that `iter().next()` used to run is gone entirely.
     for t in touches.iter_just_pressed() {
         if fingers.find(t.id()).is_some() {
             continue;
@@ -326,7 +355,6 @@ fn classify_touches(
         let in_zone = pos.x <= win_w * cfg.zone_w && pos.y >= win_h * (1.0 - cfg.zone_h);
 
         let role = if in_zone && !fingers.has_role(Role::Joystick) {
-            // The stick wins its zone outright — see the module doc on full-screen addon frames.
             anchor.centre = Some(pos);
             Role::Joystick
         } else if hits_ui(
@@ -368,22 +396,16 @@ fn classify_touches(
         match f.role {
             Role::Joystick => {
                 let centre = anchor.centre.unwrap_or(f.start);
-                // y is flipped into the movement model's y-up: screen-up must read as forward.
                 let raw = Vec2::new(f.pos.x - centre.x, centre.y - f.pos.y) / cfg.radius;
                 let len = raw.length();
                 let v = if len <= cfg.dead_zone {
                     Vec2::ZERO
                 } else {
-                    // Rescale past the dead zone so the very first movement outside it is a
-                    // *small* one. Without this the stick jumps straight to `dead_zone` worth of
-                    // deflection the instant it engages, which reads as a twitch.
                     let scaled = ((len - cfg.dead_zone) / (1.0 - cfg.dead_zone)).min(1.0);
                     raw / len * scaled
                 };
                 mv.analog = v;
                 mv.engaged = true;
-                // Digital thresholds. 0.35 on each axis gives clean 8-way output: pushing
-                // diagonally lights both axes, pushing straight lights one.
                 const ON: f32 = 0.35;
                 mv.forward = v.y > ON;
                 mv.backward = v.y < -ON;
@@ -405,16 +427,9 @@ fn classify_touches(
     }
 
     // ── 4. Retire released fingers — *after* publishing their release ────────────────────────
-    //
-    // This is the fix for the dropped-release bug. A finger that lifted this frame is still in
-    // `fingers.active` at this point, so its last known position is still available to hand to the
-    // UI, and the release is reported alongside it. Only then is it dropped.
     let mut retire: Vec<u64> = Vec::new();
     for f in &fingers.active {
         if touches.just_released(f.id) || touches.get_pressed(f.id).is_none() {
-            // `get_pressed().is_none()` is the belt to `just_released`'s braces: a touch cancelled
-            // by the OS (a system gesture, an incoming call) never reports a release at all, and a
-            // finger left in `active` forever would pin the joystick or the look session on.
             match f.role {
                 Role::Ui => {
                     pointer.pos = Some(f.pos);
@@ -435,10 +450,6 @@ fn classify_touches(
     fingers.active.retain(|f| !retire.contains(&f.id));
 }
 
-/// Does a touchdown at `pos` (logical px, y-down) land on a mouse-enabled UI frame?
-///
-/// Mirrors the coordinate conversion the UI pass already does: flip through the window height into
-/// the engine's y-up space, then divide by the seam scale into its 768-virtual units.
 fn hits_ui(
     script: Option<&benilla_ui::script::UiScript>,
     ui_nodes: &UiNodeQuery,
@@ -458,39 +469,17 @@ fn hits_ui(
         }
     }
 
-    // 2. Native Bevy UI hit test (glue screens: Login, CharSelect, CharCreate, RealmSelect, Dialogs)
-    for (node, transform, policy, disabled, vis, interaction) in ui_nodes {
-        if disabled.is_some_and(|d| d.0) || vis.is_some_and(|v| *v == Visibility::Hidden) {
-            continue;
-        }
-        if interaction.is_some() || policy.is_some_and(|p| *p == FocusPolicy::Block) {
-            if crate::glue::node_hit_test(node, transform, scale, pos) {
-                return true;
-            }
-        }
-    }
-
-    false
+    // 2. Native Bevy UI hit test
+    topmost_ui_node(ui_nodes, scale, pos).is_some()
 }
 
 /// Drives `Interaction` components on Bevy UI entities from `TouchPointer`.
-///
-/// On touch devices without a physical mouse pointer, Bevy's built-in `ui_focus_system`
-/// sees `cursor_position() == None`. This system updates `Interaction` for active Bevy UI nodes
-/// touched by the user so that edit boxes focus, buttons enter pushed state, and `glue_clicks`
-/// registers the release click.
 #[allow(clippy::type_complexity)]
 fn drive_touch_ui_interactions(
     pointer: Res<TouchPointer>,
     window: Query<&'static Window, With<PrimaryWindow>>,
-    mut ui_nodes: Query<(
-        Entity,
-        &'static mut Interaction,
-        &'static ComputedNode,
-        &'static UiGlobalTransform,
-        Option<&'static crate::glue::widgets::GlueDisabled>,
-        Option<&'static Visibility>,
-    )>,
+    ui_nodes: UiNodeQuery,
+    mut interactions: Query<&'static mut Interaction>,
 ) {
     let Some(pos) = pointer.pos else {
         return;
@@ -500,14 +489,16 @@ fn drive_touch_ui_interactions(
     };
     let scale = window.scale_factor();
 
-    for (_entity, mut interaction, node, transform, disabled, vis) in &mut ui_nodes {
-        if disabled.is_some_and(|d| d.0) || vis.is_some_and(|v| *v == Visibility::Hidden) {
-            if *interaction != Interaction::None {
-                *interaction = Interaction::None;
-            }
+    let top_entity = topmost_ui_node(&ui_nodes, scale, pos);
+
+    for (entity, _node, _transform, _policy, _disabled, _vis, interaction, _z) in &ui_nodes {
+        if interaction.is_none() {
             continue;
         }
-        if crate::glue::node_hit_test(node, transform, scale, pos) {
+        let Ok(mut interaction) = interactions.get_mut(entity) else {
+            continue;
+        };
+        if Some(entity) == top_entity {
             let want = if pointer.just_released {
                 Interaction::Hovered
             } else {
@@ -609,6 +600,7 @@ mod tests {
 
         let mut app = App::new();
         app.add_plugins((
+            bevy::time::TimePlugin,
             bevy::input::InputPlugin,
             bevy::window::WindowPlugin {
                 primary_window: None,
@@ -618,7 +610,10 @@ mod tests {
         ))
         .init_resource::<GlueClicks>()
         .add_plugins(TouchPlugin)
-        .add_systems(Update, crate::glue::glue_clicks);
+        .add_systems(
+            PreUpdate,
+            crate::glue::glue_clicks.after(bevy::ui::UiSystems::Focus),
+        );
 
         let window = app
             .world_mut()
@@ -631,22 +626,21 @@ mod tests {
             ))
             .id();
 
-        // Enable touch mode in test
         app.world_mut().resource_mut::<JoystickCfg>().enabled = true;
 
-        // Spawn a Bevy UI button at (500, 400)
+        // Spawn a Bevy UI button with 200x100 size centered at (500, 400)
         let button = app
             .world_mut()
             .spawn((
                 Node::default(),
                 Button,
                 Interaction::None,
-                ComputedNode::default(),
-                UiGlobalTransform::default(),
+                ComputedNode::from_size(Vec2::new(200.0, 100.0)),
+                UiGlobalTransform::from(Transform::from_translation(Vec3::new(500.0, 400.0, 0.0))),
+                InheritedVisibility::VISIBLE,
             ))
             .id();
 
-        // Simulate touchdown at (500, 400)
         let touch_location = Vec2::new(500.0, 400.0);
         app.world_mut().write_message(TouchInput {
             phase: TouchPhase::Started,
@@ -687,6 +681,101 @@ mod tests {
         assert!(
             clicks.hit(button),
             "touch release must register in GlueClicks"
+        );
+    }
+
+    #[test]
+    fn touch_respects_z_index_and_hidden_visibility() {
+        use bevy::input::touch::{TouchInput, TouchPhase};
+
+        let mut app = App::new();
+        app.add_plugins((
+            bevy::time::TimePlugin,
+            bevy::input::InputPlugin,
+            bevy::window::WindowPlugin {
+                primary_window: None,
+                exit_condition: bevy::window::ExitCondition::DontExit,
+                ..default()
+            },
+        ))
+        .add_plugins(TouchPlugin);
+
+        let window = app
+            .world_mut()
+            .spawn((
+                Window {
+                    resolution: bevy::window::WindowResolution::new(1000, 800),
+                    ..default()
+                },
+                PrimaryWindow,
+            ))
+            .id();
+
+        app.world_mut().resource_mut::<JoystickCfg>().enabled = true;
+
+        // Bottom button (Z = 0)
+        let bottom_btn = app
+            .world_mut()
+            .spawn((
+                Node::default(),
+                Button,
+                Interaction::None,
+                ComputedNode::from_size(Vec2::new(200.0, 100.0)),
+                UiGlobalTransform::from(Transform::from_translation(Vec3::new(500.0, 400.0, 0.0))),
+                InheritedVisibility::VISIBLE,
+                GlobalZIndex(0),
+            ))
+            .id();
+
+        // Modal top button (Z = 100)
+        let top_btn = app
+            .world_mut()
+            .spawn((
+                Node::default(),
+                Button,
+                Interaction::None,
+                ComputedNode::from_size(Vec2::new(200.0, 100.0)),
+                UiGlobalTransform::from(Transform::from_translation(Vec3::new(500.0, 400.0, 0.0))),
+                InheritedVisibility::VISIBLE,
+                GlobalZIndex(100),
+            ))
+            .id();
+
+        // Hidden button (Z = 200, but hidden)
+        let _hidden_btn = app
+            .world_mut()
+            .spawn((
+                Node::default(),
+                Button,
+                Interaction::None,
+                ComputedNode::from_size(Vec2::new(200.0, 100.0)),
+                UiGlobalTransform::from(Transform::from_translation(Vec3::new(500.0, 400.0, 0.0))),
+                InheritedVisibility::HIDDEN,
+                GlobalZIndex(200),
+            ))
+            .id();
+
+        let touch_location = Vec2::new(500.0, 400.0);
+        app.world_mut().write_message(TouchInput {
+            phase: TouchPhase::Started,
+            position: touch_location,
+            force: None,
+            id: 1,
+            window,
+        });
+
+        app.update();
+
+        // Topmost visible button (Z = 100) gets Pressed; lower button stays None
+        assert_eq!(
+            *app.world().get::<Interaction>(top_btn).unwrap(),
+            Interaction::Pressed
+        );
+        assert_eq!(
+            *app.world()
+                .get::<Interaction>(bottom_left_btn_or_none(app.world(), bottom_btn))
+                .unwrap(),
+            Interaction::None
         );
     }
 }

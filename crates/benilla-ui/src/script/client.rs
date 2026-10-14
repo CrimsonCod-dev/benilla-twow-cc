@@ -332,7 +332,7 @@ mod tests {
     /// with the registry's error handler.
     #[test]
     fn run_script_evaluates_in_the_shared_state_and_reports_without_raising() {
-        let mut s = UiScript::new().unwrap();
+        let s = UiScript::new().unwrap();
         s.run(r#"RunScript("RunScriptProbe = 41 + 1")"#).unwrap();
         assert_eq!(s.eval::<i64>("return RunScriptProbe").unwrap(), 42);
         s.run(r#"RunScript("this is not lua")"#)
@@ -388,7 +388,7 @@ mod tests {
 
     #[test]
     fn a_chunk_opening_with_getfenv_zero_no_longer_aborts_at_line_one() {
-        let mut s = UiScript::new().unwrap();
+        let s = UiScript::new().unwrap();
         s.run(
             r#"
             _G = getfenv(0)
@@ -411,7 +411,7 @@ mod tests {
     /// names the chunk defines must land in `env`, not in `_G`.
     #[test]
     fn setfenv_one_inside_a_chunk_switches_that_chunks_environment() {
-        let mut s = UiScript::new().unwrap();
+        let s = UiScript::new().unwrap();
         s.run(
             r#"
             PFENV = setmetatable({}, { __index = getfenv(0) })

@@ -103,16 +103,15 @@ pub(crate) fn glue_clicks(
     interactions: Query<(Entity, &Interaction, &ComputedNode, &UiGlobalTransform)>,
     mut pushed: Local<EntityHashSet>,
     mut clicks: ResMut<GlueClicks>,
-    touch_pointer: Res<crate::touch::TouchPointer>,
+    touch_pointer: Option<Res<crate::touch::TouchPointer>>,
     window: Query<&Window, With<bevy::window::PrimaryWindow>>,
 ) {
     clicks.0.clear();
     let scale = window.single().map(Window::scale_factor).unwrap_or(1.0);
     // `Some` only on the frame the UI finger lifted: `pos` and `just_released` land together.
     let touch_release_at = touch_pointer
-        .just_released
-        .then_some(touch_pointer.pos)
-        .flatten();
+        .as_ref()
+        .and_then(|tp| tp.just_released.then_some(tp.pos).flatten());
     pushed.retain(|&e| {
         let Ok((_, interaction, node, transform)) = interactions.get(e) else {
             return false; // despawned mid-press

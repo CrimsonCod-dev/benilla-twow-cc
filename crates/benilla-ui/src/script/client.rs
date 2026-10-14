@@ -297,7 +297,7 @@ mod tests {
     /// Never nil: addons index with it at file scope, and a nil index errors far from the cause.
     #[test]
     fn get_realm_name_is_empty_before_it_is_known_and_the_host_pushes_it() {
-        let mut s = UiScript::new().unwrap();
+        let s = UiScript::new().unwrap();
         assert_eq!(s.eval::<String>("return GetRealmName()").unwrap(), "");
         assert!(
             s.eval::<bool>("local t = {} t[GetRealmName()] = 1 return t[''] == 1")
@@ -313,7 +313,7 @@ mod tests {
 
     #[test]
     fn get_framerate_is_a_number_before_the_first_push() {
-        let mut s = UiScript::new().unwrap();
+        let s = UiScript::new().unwrap();
         assert_eq!(s.eval::<f64>("return GetFramerate()").unwrap(), 0.0);
         assert_eq!(
             s.eval::<String>("return format(\"%.1f\", GetFramerate())")
@@ -332,7 +332,7 @@ mod tests {
     /// with the registry's error handler.
     #[test]
     fn run_script_evaluates_in_the_shared_state_and_reports_without_raising() {
-        let mut s = UiScript::new().unwrap();
+        let s = UiScript::new().unwrap();
         s.run(r#"RunScript("RunScriptProbe = 41 + 1")"#).unwrap();
         assert_eq!(s.eval::<i64>("return RunScriptProbe").unwrap(), 42);
         s.run(r#"RunScript("this is not lua")"#)
@@ -388,7 +388,7 @@ mod tests {
 
     #[test]
     fn a_chunk_opening_with_getfenv_zero_no_longer_aborts_at_line_one() {
-        let mut s = UiScript::new().unwrap();
+        let s = UiScript::new().unwrap();
         s.run(
             r#"
             _G = getfenv(0)
@@ -411,7 +411,7 @@ mod tests {
     /// names the chunk defines must land in `env`, not in `_G`.
     #[test]
     fn setfenv_one_inside_a_chunk_switches_that_chunks_environment() {
-        let mut s = UiScript::new().unwrap();
+        let s = UiScript::new().unwrap();
         s.run(
             r#"
             PFENV = setmetatable({}, { __index = getfenv(0) })
@@ -492,7 +492,7 @@ mod tests {
     /// Each `OpeningCinematic()` queues one send and returns nothing.
     #[test]
     fn opening_cinematic_queues_one_send_per_call() {
-        let mut s = UiScript::new().unwrap();
+        let s = UiScript::new().unwrap();
         assert_eq!(s.arity("OpeningCinematic()").unwrap(), 0);
         s.run("OpeningCinematic(1)").unwrap();
         assert_eq!(s.take_opening_cinematic_asks(), 2);

@@ -5,9 +5,9 @@
 # on push or PR to prevent burning free runner minutes and storage quota.
 #
 # How to run:
-#   Go to Actions -> "Artifact Build (Manual)" -> "Run workflow"
-#   By default, only Android APK (aarch64) will be built.
-#   You can optionally check Desktop or Perf options if needed.
+#   1. Go to Actions tab -> "Artifact Build (Manual)" -> "Run workflow".
+#   2. By default, "Build Android APK (aarch64)" is checked.
+#   3. Optionally check "Build Desktop binaries", "Build Perf/Ship binaries", or "Regenerate Cargo.lock".
 
 name: Artifact Build (Manual)
 
@@ -39,12 +39,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Manual lockfile update when dependencies change without local toolchain
+  # Manual lockfile update when dependencies change without local toolchain.
+  # Run this via Actions tab -> "Artifact Build (Manual)" -> "Run workflow" with `update_lockfile` checked.
   update-lockfile:
     name: regenerate Cargo.lock
     if: ${{ inputs.update_lockfile }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     permissions:
       contents: write
     steps:
@@ -81,7 +82,7 @@ jobs:
     name: build (android)
     if: ${{ inputs.build_android }}
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 90
     steps:
       - name: Check out
         uses: actions/checkout@v4
@@ -172,7 +173,7 @@ jobs:
     name: build (${{ matrix.os }})
     if: ${{ inputs.build_desktop }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 40
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -221,7 +222,7 @@ jobs:
     name: perf build (${{ matrix.os }})
     if: ${{ inputs.build_perf }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:

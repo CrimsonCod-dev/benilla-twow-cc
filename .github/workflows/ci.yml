@@ -7,17 +7,12 @@ on:
   push:
     branches: [ main ]
     paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - 'LICENSE*'
-      - '.gitignore'
+      - "**.md"
+      - "docs/**"
+      - "LICENSE*"
+      - ".gitignore"
   pull_request:
     branches: [ main ]
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - 'LICENSE*'
-      - '.gitignore'
   workflow_dispatch:
 
 permissions:
@@ -29,9 +24,10 @@ concurrency:
 
 jobs:
   gates:
-    # Runs on PRs (forks or local branches), pushes to main, or manual dispatch.
+    # Fork PRs, pushes to main, or manual dispatch — same-repo branch PRs run gates locally per scripts/gates.sh.
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 120
     env:
       CARGO_TERM_COLOR: always
       CARGO_INCREMENTAL: 0

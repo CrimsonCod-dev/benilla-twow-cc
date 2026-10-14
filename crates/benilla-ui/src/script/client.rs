@@ -332,7 +332,7 @@ mod tests {
     /// with the registry's error handler.
     #[test]
     fn run_script_evaluates_in_the_shared_state_and_reports_without_raising() {
-        let s = UiScript::new().unwrap();
+        let mut s = UiScript::new().unwrap();
         s.run(r#"RunScript("RunScriptProbe = 41 + 1")"#).unwrap();
         assert_eq!(s.eval::<i64>("return RunScriptProbe").unwrap(), 42);
         s.run(r#"RunScript("this is not lua")"#)

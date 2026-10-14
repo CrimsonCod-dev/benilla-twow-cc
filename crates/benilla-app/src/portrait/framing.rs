@@ -58,8 +58,15 @@ pub(super) fn glue_scene_framing(fov: f32, window_aspect: f32, art: Option<ArtEx
         // Hor+ up to the box's width, then the vertical closes to the 16:9 floor; wider still is
         // boxed by `glue_box_aspect`.
         let floor = glue_zoom_floor(fov);
-        let half_w = (t0 * window_aspect).min(GLUE_BOX_ASPECT * floor);
-        2.0 * (half_w / window_aspect).atan()
+        if window_aspect >= GLUE_BOX_ASPECT {
+            // Boxed: the camera renders into the box aspect, so use the box aspect here.
+            let half_w = GLUE_BOX_ASPECT * floor;
+            2.0 * (half_w / GLUE_BOX_ASPECT).atan()
+        } else {
+            // Not yet boxed: width grows with window_aspect.
+            let half_w = (t0 * window_aspect).min(GLUE_BOX_ASPECT * floor);
+            2.0 * (half_w / window_aspect).atan()
+        }
     } else {
         // Hold the authored half-width and open upward to the art's edge; past it the sides crop,
         // so no floor and no bars.

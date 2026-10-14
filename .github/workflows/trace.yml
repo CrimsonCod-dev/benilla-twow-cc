@@ -42,6 +42,7 @@ jobs:
   trace:
     name: trace build (windows, ${{ inputs.profile }})
     runs-on: windows-latest
+    timeout-minutes: 90
     steps:
       - name: Check out
         uses: actions/checkout@v4
@@ -68,3 +69,4 @@ jobs:
           name: benilla-trace-windows-x86_64-${{ inputs.profile }}
           path: target/${{ inputs.profile }}/benilla.exe
           if-no-files-found: error
+          retention-days: 3

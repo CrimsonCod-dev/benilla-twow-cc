@@ -2,7 +2,7 @@
   <h1>benilla</h1>
   <p><strong>A complete World of Warcraft 1.12.1 client, written from scratch in Rust and <a href="https://bevy.org">Bevy</a>.</strong></p>
   <p>
-    <a href="https://github.com/CrimsonCod-dev/benilla-twow-cc/actions/workflows/ci_build.yml"><img src="https://img.shields.io/github/actions/workflow/status/CrimsonCod-dev/benilla-twow-cc/ci_build.yml?branch=main&label=CI" alt="CI"></a>
+    <a href="https://github.com/CrimsonCod-dev/benilla-twow-cc/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/CrimsonCod-dev/benilla-twow-cc/ci.yml?branch=main&label=CI" alt="CI"></a>
     <a href="LICENSE-MIT"><img src="https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-blue" alt="License: MIT / Apache-2.0"></a>
     <a href="https://discord.gg/wJSJx467G4"><img src="https://img.shields.io/discord/1529280129518538922?style=flat&logo=discord&logoColor=white&label=Discord&color=5865F2" alt="Discord"></a>
     <a href="https://www.youtube.com/playlist?list=PLdCnpZNKxyb8"><img src="https://img.shields.io/badge/devlog-YouTube-FF0000?style=flat&logo=youtube&logoColor=white" alt="YouTube devlog"></a>
@@ -50,7 +50,7 @@ This repository (`benilla-twow-cc`) tracks the TurtleWoW/Android fork lineage an
 - **Parent Fork:** [jhinzuo2/benilla-twow](https://github.com/jhinzuo2/benilla-twow) — Adds TurtleWoW compatibility work, custom races, and the Android entry point.
 - **This Repository:** [CrimsonCod-dev/benilla-twow-cc](https://github.com/CrimsonCod-dev/benilla-twow-cc) — Maintenance fork incorporating build fixes, platform config handling, and expanded documentation.
 - **Issue Tracking:** Local GitHub Issues are disabled in this fork. TurtleWoW-specific gaps inherited from the parent project remain tracked in the parent fork repository.
-- **Artifacts:** Desktop binaries and Android APK packages are built directly by CI workflows (`.github/workflows/ci_build.yml`).
+- **Artifacts:** Desktop binaries and Android APK packages are built directly by CI workflows on-demand via (`.github/workflows/ci_build.yml`).
 
 ---
 

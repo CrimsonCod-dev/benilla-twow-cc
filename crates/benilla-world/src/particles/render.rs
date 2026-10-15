@@ -574,9 +574,7 @@ fn prepare_effects(
                     }
                 }
                 EffectTopology::Tris => {
-                    for k in draw.range.clone() {
-                        meta.indices.push(k);
-                    }
+                    meta.indices.extend(draw.range.clone());
                 }
             }
             let index_end = meta.indices.len() as u32;

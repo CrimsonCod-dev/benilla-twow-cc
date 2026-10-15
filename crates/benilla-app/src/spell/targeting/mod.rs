@@ -1078,7 +1078,7 @@ mod tests {
                     target_owner_store: None,
                     self_store: Some(&store),
                     factions: None,
-                    reputations: &crate::net::Reputations(Vec::new()),
+                    reputations: &crate::net::Reputations(Vec::new(), Vec::new()),
                     types: crate::creature_type::CreatureTypeSources {
                         names: Some(&names),
                         forms: None,

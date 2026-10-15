@@ -586,6 +586,12 @@ fn drive_touch_ui_interactions(
 }
 #[cfg(test)]
 mod tests {
+
+fn computed_node(size: Vec2) -> ComputedNode {
+    let mut n = ComputedNode::default();
+    n.size = size;
+    n
+}
     use super::*;
 
     fn cfg() -> JoystickCfg {
@@ -699,8 +705,8 @@ mod tests {
                 Node::default(),
                 Button,
                 Interaction::None,
-                ComputedNode::from_size(Vec2::new(200.0, 100.0)),
-                UiGlobalTransform::from(Transform::from_translation(Vec3::new(500.0, 400.0, 0.0))),
+                computed_node(Vec2::new(200.0, 100.0)),
+                UiGlobalTransform::from_translation(Vec2::new(500.0, 400.0)),
                 InheritedVisibility::VISIBLE,
             ))
             .id();
@@ -779,8 +785,8 @@ mod tests {
                 Node::default(),
                 Button,
                 Interaction::None,
-                ComputedNode::from_size(Vec2::new(200.0, 100.0)),
-                UiGlobalTransform::from(Transform::from_translation(Vec3::new(500.0, 400.0, 0.0))),
+                computed_node(Vec2::new(200.0, 100.0)),
+                UiGlobalTransform::from_translation(Vec2::new(500.0, 400.0)),
                 InheritedVisibility::VISIBLE,
                 GlobalZIndex(0),
             ))
@@ -792,8 +798,8 @@ mod tests {
                 Node::default(),
                 Button,
                 Interaction::None,
-                ComputedNode::from_size(Vec2::new(200.0, 100.0)),
-                UiGlobalTransform::from(Transform::from_translation(Vec3::new(500.0, 400.0, 0.0))),
+                computed_node(Vec2::new(200.0, 100.0)),
+                UiGlobalTransform::from_translation(Vec2::new(500.0, 400.0)),
                 InheritedVisibility::VISIBLE,
                 GlobalZIndex(100),
             ))
@@ -805,8 +811,8 @@ mod tests {
                 Node::default(),
                 Button,
                 Interaction::None,
-                ComputedNode::from_size(Vec2::new(200.0, 100.0)),
-                UiGlobalTransform::from(Transform::from_translation(Vec3::new(500.0, 400.0, 0.0))),
+                computed_node(Vec2::new(200.0, 100.0)),
+                UiGlobalTransform::from_translation(Vec2::new(500.0, 400.0)),
                 InheritedVisibility::HIDDEN,
                 GlobalZIndex(200),
             ))
@@ -874,8 +880,8 @@ mod tests {
                 Node::default(),
                 Button,
                 Interaction::None,
-                ComputedNode::from_size(Vec2::new(100.0, 100.0)),
-                UiGlobalTransform::from(Transform::from_translation(Vec3::new(400.0, 400.0, 0.0))),
+                computed_node(Vec2::new(100.0, 100.0)),
+                UiGlobalTransform::from_translation(Vec2::new(400.0, 400.0)),
                 InheritedVisibility::VISIBLE,
             ))
             .id();
@@ -886,8 +892,8 @@ mod tests {
                 Node::default(),
                 Button,
                 Interaction::None,
-                ComputedNode::from_size(Vec2::new(100.0, 100.0)),
-                UiGlobalTransform::from(Transform::from_translation(Vec3::new(600.0, 400.0, 0.0))),
+                computed_node(Vec2::new(100.0, 100.0)),
+                UiGlobalTransform::from_translation(Vec2::new(600.0, 400.0)),
                 InheritedVisibility::VISIBLE,
             ))
             .id();

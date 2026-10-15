@@ -38,8 +38,10 @@ fn look_frame(
         nearclip: 0.2,
         surface_y: None,
     };
+    let touch_look = crate::touch::TouchLook::default();
     run_look_session(
         &motion,
+        &touch_look,
         both,
         &mut rig,
         &mut cam,
